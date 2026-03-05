@@ -1,0 +1,71 @@
+name: SENTINEL Daily Intelligence Brief
+
+on:
+  # Fire every day at 00:05 UTC (5 min buffer after midnight)
+  schedule:
+    - cron: '5 0 * * *'
+
+  # Manual trigger — run anytime from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Override brief date (YYYY-MM-DD, leave blank for today)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run (print output, do not post to Notion)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+jobs:
+  generate-brief:
+    name: Generate & Post Daily Brief
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run SENTINEL brief pipeline
+        env:
+          NOTION_API_KEY:   ${{ secrets.NOTION_API_KEY }}
+          NOTION_PARENT_ID: ${{ secrets.NOTION_PARENT_ID }}
+        run: |
+          DATE_FLAG=""
+          DRY_FLAG=""
+
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            DATE_FLAG="--date ${{ github.event.inputs.date }}"
+          fi
+
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+
+          python sentinel_brief.py $DATE_FLAG $DRY_FLAG --json-out data/latest.json
+
+      - name: Upload brief data as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-brief-${{ github.run_id }}
+          path: data/latest.json
+          retention-days: 30
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::SENTINEL brief pipeline failed. Check OpenSky/GPSJam connectivity and Notion API key."
