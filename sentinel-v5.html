@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTINEL — World Intelligence Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{
+  --space:#020811;--panel:#060d17;--card:rgba(8,16,28,0.95);
+  --glass:rgba(6,13,23,0.88);--glass2:rgba(6,13,23,0.97);
+  --cyan:#22d3ee;--gold:#f59e0b;--red:#ef4444;--green:#10b981;
+  --blue:#3b82f6;--purple:#a78bfa;--orange:#f97316;
+  --text:#dde6f0;--muted:#3a5570;--sub:#7a9ab8;
+  --b1:rgba(34,211,238,0.1);--b2:rgba(34,211,238,0.25);
+  --glow:0 0 20px rgba(34,211,238,0.25);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--space);}
+body{font-family:'DM Sans',sans-serif;color:var(--text);}
+
+/* BOOT */
+#boot{position:fixed;inset:0;background:var(--space);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity 0.8s;}
+#boot.out{opacity:0;pointer-events:none;}
+.blogo{font-family:'Syne',sans-serif;font-size:40px;font-weight:800;letter-spacing:.1em;background:linear-gradient(135deg,#22d3ee 0%,#3b82f6 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.bsub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.35em;color:var(--muted);text-transform:uppercase;}
+.bbar{width:300px;height:1px;background:rgba(255,255,255,0.05);}
+.bfill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--blue));animation:bf 2.8s ease-out forwards;}
+@keyframes bf{0%{width:0}100%{width:100%}}
+.bstat{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.15em;}
+
+/* APP */
+#app{display:flex;height:100vh;width:100vw;overflow:hidden;}
+
+/* STAGE */
+#stage{flex:1;position:relative;overflow:hidden;min-width:0;}
+#globe-canvas{display:block;width:100%;height:100%;}
+#map-wrap{position:absolute;inset:0;display:none;}
+#map{width:100%;height:100%;}
+
+/* HUD */
+.hud{position:absolute;pointer-events:none;z-index:20;}
+.hud.tl{top:14px;left:14px;}
+.hud.tr{top:14px;right:14px;}
+.hud.bl{bottom:60px;left:14px;}
+.hchip{font-family:'DM Mono',monospace;font-size:10px;color:var(--sub);background:rgba(6,13,23,.85);border:1px solid var(--b1);border-radius:4px;padding:4px 10px;margin-bottom:4px;backdrop-filter:blur(8px);letter-spacing:.08em;white-space:nowrap;}
+.hchip span{color:var(--cyan);}
+.hchip.live::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--green);margin-right:6px;animation:lp 2s infinite;}
+@keyframes lp{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.7);}50%{box-shadow:0 0 0 3px rgba(16,185,129,0);}}
+.hchip.warn{border-color:rgba(239,68,68,.3);color:var(--red);}
+
+/* View buttons */
+#vbar{position:absolute;top:14px;right:14px;z-index:30;display:flex;gap:5px;}
+.vb{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.15em;padding:5px 11px;background:rgba(6,13,23,.85);border:1px solid var(--b1);color:var(--muted);cursor:pointer;border-radius:4px;transition:all .15s;backdrop-filter:blur(8px);}
+.vb:hover{border-color:var(--b2);color:var(--cyan);}
+.vb.on{background:rgba(34,211,238,.1);border-color:var(--cyan);color:var(--cyan);box-shadow:var(--glow);}
+
+/* Layer bar */
+#lbar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:30;display:flex;gap:5px;background:var(--glass2);border:1px solid var(--b1);border-radius:24px;padding:5px 14px;backdrop-filter:blur(12px);}
+.lb{display:flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;color:var(--muted);cursor:pointer;padding:3px 8px;border-radius:14px;transition:all .12s;user-select:none;}
+.lb.on{background:rgba(255,255,255,.06);color:var(--text);}
+.ld{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.lc{font-size:8px;background:rgba(255,255,255,.06);padding:1px 4px;border-radius:2px;margin-left:1px;}
+
+/* Target popup */
+#tpop{position:absolute;z-index:400;bottom:80px;left:24px;background:var(--glass2);border:1px solid var(--b2);border-radius:8px;padding:16px 18px;min-width:290px;display:none;backdrop-filter:blur(16px);box-shadow:var(--glow),0 20px 40px rgba(0,0,0,.6);}
+#tpop.vis{display:block;}
+#tpclose{position:absolute;top:10px;right:12px;cursor:pointer;color:var(--muted);font-size:13px;}
+#tpclose:hover{color:var(--text);}
+
+/* DASHBOARD */
+#dash{width:460px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;}
+
+/* Header */
+#dh{padding:14px 18px 0;border-bottom:1px solid var(--b1);flex-shrink:0;}
+.dbrand{display:flex;align-items:center;gap:9px;margin-bottom:12px;}
+.dlogo{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;letter-spacing:.12em;background:linear-gradient(135deg,var(--cyan),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.dtag{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.2em;color:var(--muted);background:rgba(34,211,238,.05);border:1px solid var(--b1);padding:2px 6px;border-radius:3px;}
+#uclock{font-family:'DM Mono',monospace;font-size:21px;font-weight:500;color:var(--cyan);letter-spacing:.04em;}
+.thr{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.15em;padding:3px 9px;border:1px solid rgba(239,68,68,.4);color:var(--red);border-radius:3px;animation:flk 7s infinite;}
+@keyframes flk{0%,92%,100%{opacity:1;}93%{opacity:.3;}97%{opacity:.8;}}
+.tabs{display:flex;overflow-x:auto;scrollbar-width:none;border-bottom:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.15em;padding:8px 13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap;text-transform:uppercase;flex-shrink:0;}
+.tab:hover{color:var(--sub);}
+.tab.on{color:var(--cyan);border-bottom-color:var(--cyan);}
+
+/* Body */
+#db{flex:1;overflow:hidden;position:relative;}
+.tp{position:absolute;inset:0;overflow-y:auto;display:none;}
+.tp.on{display:block;}
+.tp::-webkit-scrollbar{width:3px;}
+.tp::-webkit-scrollbar-thumb{background:rgba(34,211,238,.12);border-radius:2px;}
+
+/* Stat grid */
+.sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--b1);}
+.sc{background:var(--panel);padding:13px 15px;cursor:default;}
+.sv{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;line-height:1;margin-bottom:3px;}
+.sv.c{color:var(--cyan);}
+.sv.g{color:var(--green);}
+.sv.r{color:var(--red);}
+.sv.a{color:var(--gold);}
+.sv.p{color:var(--purple);}
+.sv.b{color:var(--blue);}
+.sl{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.2em;color:var(--muted);text-transform:uppercase;}
+
+/* Alert feed */
+.afeed{padding:13px 18px;border-bottom:1px solid var(--b1);}
+.afl{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.2em;color:var(--muted);margin-bottom:9px;display:flex;align-items:center;gap:6px;}
+.afl::after{content:'';flex:1;height:1px;background:var(--b1);}
+.ai{display:flex;gap:9px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.03);}
+.ai:last-child{border:none;}
+.asv{width:3px;flex-shrink:0;border-radius:2px;align-self:stretch;}
+.asv.hi{background:var(--red);}
+.asv.md{background:var(--gold);}
+.asv.lo{background:var(--cyan);}
+.ab2{flex:1;min-width:0;}
+.at{font-size:11px;font-weight:500;color:var(--text);line-height:1.3;margin-bottom:2px;}
+.am{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);}
+
+/* Blog / accordion */
+.bs{border-bottom:1px solid var(--b1);}
+.btog{width:100%;display:flex;align-items:center;gap:9px;padding:13px 18px;background:transparent;border:none;cursor:pointer;text-align:left;transition:background .12s;}
+.btog:hover{background:rgba(34,211,238,.02);}
+.tico{width:18px;height:18px;border-radius:50%;border:1px solid var(--b1);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted);flex-shrink:0;transition:all .2s;}
+.btog.open .tico{background:rgba(34,211,238,.1);border-color:var(--cyan);color:var(--cyan);transform:rotate(45deg);}
+.tlbl{flex:1;font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--text);}
+.tbadge{font-family:'DM Mono',monospace;font-size:8px;padding:2px 7px;border-radius:10px;border:1px solid var(--b1);color:var(--muted);white-space:nowrap;}
+.tbadge.hot{border-color:rgba(239,68,68,.4);color:var(--red);background:rgba(239,68,68,.05);}
+.tbadge.warn{border-color:rgba(245,158,11,.4);color:var(--gold);}
+.tbadge.ok{border-color:rgba(16,185,129,.3);color:var(--green);}
+.tbadge.info{border-color:rgba(34,211,238,.3);color:var(--cyan);}
+.bcont{display:none;padding:0 18px 14px;}
+.bcont.open{display:block;}
+
+/* Article cards */
+.art{background:rgba(255,255,255,.018);border:1px solid var(--b1);border-radius:6px;padding:13px;margin-bottom:9px;transition:border-color .15s;}
+.art:hover{border-color:var(--b2);}
+.acat{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px;}
+.atit{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);line-height:1.3;margin-bottom:6px;}
+.abdy{font-family:'DM Sans',sans-serif;font-size:11px;color:var(--sub);line-height:1.65;margin-bottom:8px;}
+.aft{display:flex;align-items:center;justify-content:space-between;}
+.atm{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);}
+.atag{font-family:'DM Mono',monospace;font-size:8px;padding:2px 6px;border-radius:3px;border:1px solid;}
+.dr{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:10px;}
+.dr:last-child{border:none;}
+.dk{font-family:'DM Mono',monospace;color:var(--muted);font-size:9px;}
+.dv{font-family:'DM Mono',monospace;color:var(--text);}
+.dv.g{color:var(--green);}
+.dv.r{color:var(--red);}
+.dv.a{color:var(--gold);}
+.dv.c{color:var(--cyan);}
+.dv.p{color:var(--purple);}
+.pr{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:9px;font-family:'DM Mono',monospace;}
+.pbar{flex:1;height:3px;background:rgba(255,255,255,.04);border-radius:2px;overflow:hidden;}
+.pf{height:100%;border-radius:2px;transition:width 1s ease;}
+
+/* Tracks */
+.tfilter{padding:11px 18px;border-bottom:1px solid var(--b1);display:flex;gap:5px;flex-wrap:wrap;}
+.tf{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.12em;padding:3px 9px;border:1px solid var(--b1);color:var(--muted);cursor:pointer;border-radius:12px;transition:all .12s;}
+.tf.on{background:rgba(34,211,238,.1);border-color:var(--cyan);color:var(--cyan);}
+.tl2{padding:9px 10px;}
+.tc{display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid transparent;border-radius:5px;cursor:pointer;margin-bottom:3px;transition:all .1s;}
+.tc:hover{background:rgba(34,211,238,.04);border-color:var(--b1);}
+.tci{font-size:15px;width:22px;text-align:center;}
+.tcb{flex:1;min-width:0;}
+.tcid{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;}
+.tcm{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tcv{font-family:'DM Mono',monospace;font-size:9px;color:var(--sub);text-align:right;}
+.tlive{font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(16,185,129,.1);color:var(--green);border:1px solid rgba(16,185,129,.25);font-family:'DM Mono',monospace;}
+.tsim{font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(245,158,11,.07);color:var(--gold);border:1px solid rgba(245,158,11,.2);font-family:'DM Mono',monospace;}
+
+/* AI Bot */
+.bwrap{display:flex;flex-direction:column;height:100%;}
+.qps{padding:10px 18px 0;display:flex;flex-wrap:wrap;gap:4px;flex-shrink:0;}
+.qp{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.1em;padding:4px 9px;border:1px solid var(--b1);color:var(--muted);cursor:pointer;border-radius:12px;transition:all .12s;}
+.qp:hover{border-color:var(--cyan);color:var(--cyan);}
+.bchat{flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:9px;}
+.bchat::-webkit-scrollbar{width:3px;}
+.bchat::-webkit-scrollbar-thumb{background:rgba(34,211,238,.12);}
+.bm{padding:10px 12px;border-radius:6px;font-size:11px;line-height:1.6;max-width:92%;}
+.bm.u{background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.2);color:var(--cyan);align-self:flex-end;border-radius:6px 6px 0 6px;}
+.bm.b{background:rgba(255,255,255,.025);border:1px solid var(--b1);color:var(--text);border-radius:6px 6px 6px 0;}
+.bm.t{color:var(--muted);font-style:italic;}
+.bbar{padding:11px 18px;border-top:1px solid var(--b1);display:flex;gap:6px;flex-shrink:0;}
+.binp{flex:1;background:rgba(255,255,255,.035);border:1px solid var(--b1);color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:8px 12px;border-radius:5px;outline:none;transition:border .15s;}
+.binp:focus{border-color:var(--cyan);}
+.binp::placeholder{color:var(--muted);}
+.bsnd{background:rgba(34,211,238,.08);border:1px solid var(--cyan);color:var(--cyan);padding:8px 15px;cursor:pointer;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.15em;border-radius:5px;transition:all .15s;}
+.bsnd:hover{background:rgba(34,211,238,.16);}
+.bsnd:disabled{opacity:.3;cursor:not-allowed;}
+
+/* Sources */
+.srcg{padding:12px 18px;display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.srcc{background:rgba(255,255,255,.02);border:1px solid var(--b1);border-radius:5px;padding:9px 11px;}
+.srcn{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:.2em;color:var(--muted);text-transform:uppercase;margin-bottom:4px;}
+.srcs{font-family:'DM Mono',monospace;font-size:11px;font-weight:500;}
+.srcs.live{color:var(--green);}
+.srcs.sim{color:var(--gold);}
+.srcs.err{color:var(--red);}
+.srcs.init{color:var(--muted);}
+.srcd{font-size:9px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+
+/* Timeline */
+#tl{position:absolute;bottom:0;left:0;right:0;height:46px;background:rgba(2,8,17,.96);border-top:1px solid var(--b1);z-index:40;display:flex;align-items:center;gap:9px;padding:0 14px;backdrop-filter:blur(8px);}
+.tlb{width:24px;height:24px;background:rgba(34,211,238,.04);border:1px solid var(--b1);border-radius:3px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;transition:all .12s;flex-shrink:0;}
+.tlb:hover{border-color:var(--b2);color:var(--cyan);}
+.tlb.on{background:rgba(34,211,238,.14);border-color:var(--cyan);color:var(--cyan);}
+.tltr{flex:1;position:relative;}
+.tllb{display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:8px;color:var(--muted);margin-bottom:3px;}
+.tlg{height:8px;background:rgba(255,255,255,.04);border-radius:4px;position:relative;cursor:pointer;overflow:visible;}
+.tldot{position:absolute;top:0;width:2px;height:100%;border-radius:1px;opacity:.6;}
+.tlhd{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--cyan);border-radius:1px;box-shadow:0 0 8px var(--cyan);pointer-events:none;}
+.tltime{font-family:'DM Mono',monospace;font-size:11px;color:var(--cyan);white-space:nowrap;flex-shrink:0;}
+.tlspd{background:transparent;border:1px solid var(--b1);color:var(--sub);font-family:'DM Mono',monospace;font-size:9px;padding:2px 6px;border-radius:3px;cursor:pointer;}
+
+/* Scanline overlay on globe */
+#stage::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(34,211,238,.01) 2px,rgba(34,211,238,.01) 3px);pointer-events:none;z-index:5;}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(34,211,238,.1);border-radius:2px;}
+
+/* Leaflet */
+.leaflet-container{background:#01060f!important;}
+.leaflet-control-zoom a{background:var(--glass)!important;color:var(--cyan)!important;border-color:var(--b1)!important;}
+.leaflet-control-attribution{background:rgba(2,8,17,.7)!important;font-size:8px!important;color:var(--muted)!important;}
+
+/* ── TTS ENGINE ── */
+#tts-bar{position:relative;flex-shrink:0;border-top:1px solid var(--b1);background:rgba(3,7,16,.96);padding:9px 14px;display:flex;align-items:center;gap:8px;z-index:200;}
+.tts-btn{height:26px;padding:0 11px;background:rgba(34,211,238,.06);border:1px solid var(--b1);color:var(--muted);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;border-radius:4px;cursor:pointer;transition:all .13s;white-space:nowrap;flex-shrink:0;}
+.tts-btn:hover{border-color:var(--b2);color:var(--cyan);}
+.tts-btn.active{background:rgba(34,211,238,.14);border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 10px rgba(34,211,238,.2);}
+.tts-btn.stop{border-color:rgba(239,68,68,.35);color:var(--red);}
+.tts-btn.stop:hover{background:rgba(239,68,68,.1);border-color:var(--red);}
+.tts-sel{height:26px;background:rgba(255,255,255,.03);border:1px solid var(--b1);color:var(--sub);font-family:'DM Mono',monospace;font-size:8px;padding:0 6px;border-radius:4px;cursor:pointer;min-width:0;max-width:110px;text-overflow:ellipsis;}
+.tts-sel:focus{outline:none;border-color:var(--b2);}
+.tts-range{-webkit-appearance:none;appearance:none;height:2px;background:rgba(34,211,238,.15);border-radius:1px;width:52px;cursor:pointer;flex-shrink:0;}
+.tts-range::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 6px rgba(34,211,238,.5);}
+.tts-lbl{font-family:'DM Mono',monospace;font-size:8px;color:var(--muted);white-space:nowrap;letter-spacing:.1em;}
+#tts-viz{display:flex;align-items:center;gap:2px;width:28px;height:18px;flex-shrink:0;}
+.tts-bar-v{width:3px;border-radius:1px;background:var(--cyan);transition:height .1s;}
+#tts-status{font-family:'DM Mono',monospace;font-size:9px;color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.05em;}
+#tts-status span{color:var(--cyan);}
+/* HUD audio chip */
+.hchip.audio{border-color:rgba(167,139,250,.3);color:var(--purple);}
+.hchip.audio.speaking{border-color:rgba(167,139,250,.6);animation:aspk 1.4s infinite;}
+@keyframes aspk{0%,100%{box-shadow:none;}50%{box-shadow:0 0 8px rgba(167,139,250,.4);}}
+/* Bot message read button */
+.bm-rd{display:inline-flex;align-items:center;gap:3px;margin-top:5px;font-family:'DM Mono',monospace;font-size:8px;color:var(--muted);cursor:pointer;border:1px solid var(--b1);border-radius:3px;padding:2px 6px;transition:all .12s;}
+.bm-rd:hover{color:var(--cyan);border-color:var(--b2);}
+</style>
+</head>
+<body>
+
+<div id="boot">
+  <div class="blogo">SENTINEL</div>
+  <div class="bsub">World Intelligence Platform</div>
+  <div class="bbar"><div class="bfill"></div></div>
+  <div class="bstat" id="bstat">Initializing systems...</div>
+</div>
+
+<div id="app">
+  <!-- STAGE -->
+  <div id="stage">
+    <canvas id="globe-canvas"></canvas>
+    <div id="map-wrap"><div id="map"></div></div>
+
+    <div class="hud tl">
+      <div class="hchip live">LIVE FEED ACTIVE</div>
+      <div class="hchip" id="hv">VIEW: <span>3D GLOBE</span></div>
+      <div class="hchip" id="hcur">CURSOR: <span>—</span></div>
+    </div>
+    <div class="hud tr" style="text-align:right;">
+      <div class="hchip" id="hct">OBJECTS: <span>—</span></div>
+      <div class="hchip warn">⚠ THREAT ELEVATED</div>
+      <div class="hchip audio" id="haud">🔊 AUDIO</div>
+    </div>
+
+    <div id="vbar">
+      <button class="vb on" id="vg" onclick="setView('globe')">🌐 GLOBE</button>
+      <button class="vb" id="vm" onclick="setView('map')">🛰 SAT</button>
+      <button class="vb" id="vs" onclick="setView('split')">⊞ SPLIT</button>
+    </div>
+
+    <div id="lbar">
+      <div class="lb on" onclick="toggleL('aircraft',this)"><div class="ld" style="background:var(--cyan)"></div>AIR<span class="lc" id="lc-ac">0</span></div>
+      <div class="lb on" onclick="toggleL('naval',this)"><div class="ld" style="background:var(--green)"></div>SEA<span class="lc" id="lc-nv">0</span></div>
+      <div class="lb on" onclick="toggleL('jamming',this)"><div class="ld" style="background:var(--gold)"></div>JAM<span class="lc" id="lc-jm">0</span></div>
+      <div class="lb on" onclick="toggleL('satellite',this)"><div class="ld" style="background:var(--purple)"></div>SAT<span class="lc" id="lc-sat">0</span></div>
+      <div class="lb on" onclick="toggleL('incidents',this)"><div class="ld" style="background:var(--red)"></div>INC<span class="lc" id="lc-inc">0</span></div>
+    </div>
+
+    <div id="tpop"><span id="tpclose" onclick="closeTgt()">✕</span><div id="tpbody"></div></div>
+
+    <div id="tl">
+      <button class="tlb" onclick="stepTL(-1)">⏮</button>
+      <button class="tlb" id="pbtn" onclick="togglePlay()">▶</button>
+      <button class="tlb" onclick="stepTL(1)">⏭</button>
+      <button class="tlb" style="width:36px;font-size:8px;color:var(--red);border-color:rgba(239,68,68,.3);" onclick="goLive()">LIVE</button>
+      <select class="tlspd" onchange="setSpd(this.value)"><option value="1">1×</option><option value="5">5×</option><option value="60">60×</option></select>
+      <div class="tltr">
+        <div class="tllb"><span id="tl0">—</span><span style="color:var(--cyan)">━ 24H ━</span><span>NOW</span></div>
+        <div class="tlg" onclick="seekTL(event)"><div id="tlevts"></div><div class="tlhd" id="tlh" style="left:100%"></div></div>
+      </div>
+      <div class="tltime" id="tlct">—</div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dash">
+    <div id="dh">
+      <div class="dbrand">
+        <div class="dlogo">SENTINEL</div>
+        <div class="dtag">WORLD INTEL v5</div>
+        <div style="margin-left:auto;font-family:'DM Mono',monospace;font-size:8px;color:var(--muted)" id="rage">00:00</div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div id="uclock">00:00:00 UTC</div>
+        <div class="thr">⚠ ELEVATED</div>
+      </div>
+      <div class="tabs">
+        <div class="tab on" onclick="showTab('overview',this)">OVERVIEW</div>
+        <div class="tab" onclick="showTab('regions',this)">REGIONS</div>
+        <div class="tab" onclick="showTab('air',this)">AIR</div>
+        <div class="tab" onclick="showTab('maritime',this)">MARITIME</div>
+        <div class="tab" onclick="showTab('tracks',this)">TRACKS</div>
+        <div class="tab" onclick="showTab('intel',this)">AI INTEL</div>
+        <div class="tab" onclick="showTab('sources',this)">SOURCES</div>
+      </div>
+    </div>
+
+    <!-- TTS BAR -->
+    <div id="tts-bar">
+      <button class="tts-btn" id="tts-play" onclick="ttsReadTab()">▶ READ</button>
+      <button class="tts-btn stop" id="tts-stop" onclick="ttsStop()" style="display:none">■ STOP</button>
+      <div id="tts-viz">
+        <div class="tts-bar-v" id="tv0" style="height:4px"></div>
+        <div class="tts-bar-v" id="tv1" style="height:4px"></div>
+        <div class="tts-bar-v" id="tv2" style="height:4px"></div>
+        <div class="tts-bar-v" id="tv3" style="height:4px"></div>
+        <div class="tts-bar-v" id="tv4" style="height:4px"></div>
+      </div>
+      <div id="tts-status">READY</div>
+      <span class="tts-lbl">VOICE</span>
+      <select class="tts-sel" id="tts-voice" onchange="ttsSetVoice()"></select>
+      <span class="tts-lbl">RATE</span>
+      <input class="tts-range" type="range" id="tts-rate" min="0.6" max="2" step="0.1" value="1" oninput="ttsSetRate(this.value)">
+      <span class="tts-lbl" id="tts-rate-lbl">1.0×</span>
+    </div>
+
+    <div id="db">
+
+      <!-- OVERVIEW -->
+      <div class="tp on" id="tab-overview">
+        <div class="sgrid">
+          <div class="sc"><div class="sv c" id="ov-ac">—</div><div class="sl">AIRCRAFT</div></div>
+          <div class="sc"><div class="sv g" id="ov-nv">—</div><div class="sl">VESSELS</div></div>
+          <div class="sc"><div class="sv a" id="ov-jm">—</div><div class="sl">JAM ZONES</div></div>
+          <div class="sc"><div class="sv p" id="ov-sat">—</div><div class="sl">SATELLITES</div></div>
+          <div class="sc"><div class="sv r" id="ov-inc">—</div><div class="sl">INCIDENTS</div></div>
+          <div class="sc"><div class="sv b" id="ov-mil">—</div><div class="sl">MIL ASSETS</div></div>
+        </div>
+        <div class="afeed">
+          <div class="afl">LIVE INTEL LOG</div>
+          <div id="afl"></div>
+        </div>
+        <div class="bs">
+          <button class="btog open" onclick="tog(this)">
+            <span class="tico">+</span><span class="tlbl">Global Threat Assessment</span>
+            <span class="tbadge hot">ELEVATED</span>
+          </button>
+          <div class="bcont open">
+            <div class="art">
+              <div class="acat" style="color:var(--red)">⚠ PRIORITY ASSESSMENT</div>
+              <div class="atit">Multi-Domain Conflict Activity — World Threat Status</div>
+              <div class="abdy">Sustained military activity across air, maritime, and electronic warfare domains globally. Eastern European theater remains primary concern with GPS denial coverage elevated across Black Sea corridor. Indo-Pacific tensions secondary watch item.</div>
+              <div style="margin:8px 0">
+                <div class="pr"><span style="color:var(--muted);width:80px">Air Activity</span><div class="pbar"><div class="pf" id="pg-air" style="background:var(--cyan);width:0%"></div></div><span id="pp-air" style="color:var(--cyan)">—</span></div>
+                <div class="pr"><span style="color:var(--muted);width:80px">Naval Density</span><div class="pbar"><div class="pf" id="pg-nv" style="background:var(--green);width:0%"></div></div><span id="pp-nv" style="color:var(--green)">—</span></div>
+                <div class="pr"><span style="color:var(--muted);width:80px">GNSS Denial</span><div class="pbar"><div class="pf" id="pg-jm" style="background:var(--gold);width:0%"></div></div><span id="pp-jm" style="color:var(--gold)">—</span></div>
+              </div>
+              <div class="aft"><span class="atm" id="ov-time">—</span><span class="atag" style="border-color:rgba(239,68,68,.4);color:var(--red)">OSINT</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="bs">
+          <button class="btog" onclick="tog(this)">
+            <span class="tico">+</span><span class="tlbl">Feed Status</span>
+            <span class="tbadge info" id="fsb">6 FEEDS</span>
+          </button>
+          <div class="bcont">
+            <div id="smini"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- REGIONS -->
+      <div class="tp" id="tab-regions"><div id="rc"></div></div>
+
+      <!-- AIR -->
+      <div class="tp" id="tab-air"><div id="airc"></div></div>
+
+      <!-- MARITIME -->
+      <div class="tp" id="tab-maritime"><div id="marc"></div></div>
+
+      <!-- TRACKS -->
+      <div class="tp" id="tab-tracks">
+        <div class="tfilter">
+          <div class="tf on" onclick="setTF('all',this)">ALL</div>
+          <div class="tf" onclick="setTF('military',this)">MILITARY</div>
+          <div class="tf" onclick="setTF('intel',this)">ISR</div>
+          <div class="tf" onclick="setTF('cargo',this)">CARGO</div>
+          <div class="tf" onclick="setTF('tanker',this)">TANKER</div>
+          <div class="tf" onclick="setTF('nval',this)">NAVAL</div>
+        </div>
+        <div class="tl2" id="tlist"></div>
+      </div>
+
+      <!-- AI INTEL -->
+      <div class="tp" id="tab-intel">
+        <div class="bwrap">
+          <div class="qps">
+            <div class="qp" onclick="qp('Full theater briefing')">Full briefing</div>
+            <div class="qp" onclick="qp('Military aircraft assessment')">Military air</div>
+            <div class="qp" onclick="qp('GPS jamming situation report')">GPS jamming</div>
+            <div class="qp" onclick="qp('Naval threat assessment')">Naval threats</div>
+            <div class="qp" onclick="qp('Satellite coverage report')">SAT coverage</div>
+            <div class="qp" onclick="qp('24h incident summary')">24h incidents</div>
+          </div>
+          <div class="bchat" id="bchat">
+            <div class="bm b">SENTINEL AI online. Feeds initializing — once the Overview shows live counts, all collection domains are ready. Ask for threat assessments, briefings, or specific track analysis.</div>
+          </div>
+          <div class="bbar">
+            <input class="binp" id="binp" placeholder="Intelligence query..." onkeydown="if(event.key==='Enter')sendBot()">
+            <button class="bsnd" id="bsnd" onclick="sendBot()">SEND</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SOURCES -->
+      <div class="tp" id="tab-sources">
+        <div class="srcg" id="srcg"></div>
+        <div style="padding:0 18px 16px;">
+          <div class="bs" style="border:1px solid var(--b1);border-radius:6px;overflow:hidden;margin-bottom:10px;">
+            <button class="btog open" onclick="tog(this)">
+              <span class="tico">+</span><span class="tlbl">How ADS-B Works</span>
+              <span class="tbadge ok">ARCHITECTURE</span>
+            </button>
+            <div class="bcont open">
+              <div class="art">
+                <div class="atit">The Same Data as FlightRadar24</div>
+                <div class="abdy">ADS-B (Automatic Dependent Surveillance–Broadcast) transponders broadcast GPS position, altitude, speed, and identity every ~0.5s on 1090MHz. FlightRadar24, Flightaware, and SENTINEL all decode the same raw signal from ~40,000 ground receivers worldwide. OpenSky Network is the open-access nonprofit version. SENTINEL polls every 15 seconds — real callsigns, real positions.</div>
+              </div>
+            </div>
+          </div>
+          <div class="bs" style="border:1px solid var(--b1);border-radius:6px;overflow:hidden;margin-bottom:10px;">
+            <button class="btog" onclick="tog(this)">
+              <span class="tico">+</span><span class="tlbl">Enable Live AIS Naval</span>
+              <span class="tbadge warn">FREE KEY NEEDED</span>
+            </button>
+            <div class="bcont">
+              <div class="art">
+                <div class="atit">aisstream.io — Real Vessel Tracking</div>
+                <div class="abdy">AIS (Automatic Identification System) is mandatory for vessels >300 GT. Register free at <strong style="color:var(--cyan)">aisstream.io</strong> for a WebSocket key. Provides real-time vessel positions, headings, and identities — same data as MarineTraffic and VesselFinder.</div>
+              </div>
+            </div>
+          </div>
+          <div class="bs" style="border:1px solid var(--b1);border-radius:6px;overflow:hidden;">
+            <button class="btog" onclick="tog(this)">
+              <span class="tico">+</span><span class="tlbl">GPSJam Interference Detection</span>
+              <span class="tbadge ok">LIVE DATA</span>
+            </button>
+            <div class="bcont">
+              <div class="art">
+                <div class="atit">GNSS Jamming via ADS-B Anomalies</div>
+                <div class="abdy">GPSJam.org detects interference by analyzing NACp (Navigation Accuracy Category) values in ADS-B messages. When aircraft report degraded GPS, those anomalies are aggregated geospatially. The 40,000-node ADS-B network becomes a passive GNSS sensor array — no dedicated hardware needed.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ════════════════════════════════════════════════════════════
+//  SENTINEL v5 — World Intel + Google Earth Globe
+// ════════════════════════════════════════════════════════════
+const S={view:'globe',layers:{aircraft:true,naval:true,jamming:true,satellite:true,incidents:true},tracks:{aircraft:[],naval:[],satellite:[],incidents:[]},jamming:[],playing:false,speed:1,phPct:100,tf:'all',mapReady:false,map:null,mapMarkers:{aircraft:[],naval:[],satellite:[],incidents:[]},jamCircles:[],botHist:[],cycle:0,rsecs:0};
+const FEEDS={opensky:{label:'OpenSky ADS-B',state:'INIT',count:0,lastUpdate:0},adsbx:{label:'ADS-B Exchange',state:'INIT',count:0,lastUpdate:0},gpsjam:{label:'GPSJam.org',state:'INIT',count:0,lastUpdate:0},ais:{label:'AIS Stream',state:'SIM',count:0,lastUpdate:0},celestrak:{label:'CelesTrak TLE',state:'SIM',count:0,lastUpdate:0},acled:{label:'ACLED',state:'SIM',count:0,lastUpdate:0}};
+let osCD=15;
+const rnd=(a,b)=>a+Math.random()*(b-a),ri=(a,b)=>Math.floor(rnd(a,b)),rc=a=>a[ri(0,a.length)],gid=p=>p+'-'+Math.random().toString(36).substr(2,6).toUpperCase();
+
+// World regions
+const REGIONS=[
+  {id:'eeur',name:'Eastern Europe',icon:'🌍',lat:50,lng:32,desc:'Active conflict zone. Ukraine-Russia war ongoing. Elevated activity across all intelligence domains. GPS jamming pervasive across Black Sea corridor.',threat:'CRITICAL',color:'var(--red)'},
+  {id:'meast',name:'Middle East',icon:'🌏',lat:33,lng:43,desc:'Multi-state tensions. Red Sea shipping disruptions continue. Iran-Israel escalation risk remains elevated. Drone activity over Persian Gulf.',threat:'HIGH',color:'var(--orange)'},
+  {id:'asia',name:'Indo-Pacific',icon:'🌏',lat:22,lng:115,desc:'Taiwan Strait tensions elevated. South China Sea territorial disputes active. DPRK ballistic missile tests continue. PLAN naval exercises ongoing.',threat:'HIGH',color:'var(--orange)'},
+  {id:'natl',name:'North Atlantic',icon:'🌊',lat:58,lng:-25,desc:'NATO naval exercises elevated tempo. Russian submarine activity above baseline. Undersea cable vulnerability monitoring active.',threat:'MODERATE',color:'var(--gold)'},
+  {id:'afr',name:'Sub-Saharan Africa',icon:'🌍',lat:8,lng:22,desc:'Multiple active insurgencies across Sahel. Wagner/Africa Corps presence in multiple theaters. Maritime piracy Gulf of Guinea.',threat:'MODERATE',color:'var(--gold)'},
+  {id:'amer',name:'Americas',icon:'🌎',lat:18,lng:-88,desc:'Cartel corridor monitoring active. Venezuelan political instability. Arctic sovereignty contest increasing tempo.',threat:'LOW',color:'var(--green)'},
+];
+
+const AC_T=[{type:'intel',label:'RQ-4B GLOBAL HAWK',color:'#22d3ee'},{type:'military',label:'RC-135V RIVET JOINT',color:'#f59e0b'},{type:'military',label:'P-8A POSEIDON',color:'#f59e0b'},{type:'military',label:'E-3 AWACS',color:'#f59e0b'},{type:'cargo',label:'C-17A GLOBEMASTER',color:'#94a3b8'},{type:'military',label:'Su-27 FLANKER',color:'#f97316'},{type:'military',label:'F-16 FALCON',color:'#22d3ee'},{type:'intel',label:'MC-12W LIBERTY',color:'#a78bfa'}];
+const VS_T=[{type:'military',label:'DESTROYER',color:'#ef4444'},{type:'military',label:'FRIGATE',color:'#ef4444'},{type:'military',label:'LANDING SHIP',color:'#f97316'},{type:'cargo',label:'BULK CARRIER',color:'#10b981'},{type:'tanker',label:'OIL TANKER',color:'#f59e0b'},{type:'cargo',label:'CONTAINER SHIP',color:'#10b981'}];
+const INC_T=[{label:'MISSILE IMPACT',color:'#ef4444',em:'💥'},{label:'DRONE STRIKE',color:'#f97316',em:'💢'},{label:'ARTILLERY',color:'#f59e0b',em:'⚡'},{label:'VESSEL DAMAGED',color:'#ef4444',em:'🚨'},{label:'RADAR CONTACT',color:'#22d3ee',em:'📡'},{label:'AIRSTRIKE',color:'#ef4444',em:'🔥'}];
+const SAT_NAMES=['SENTINEL-2A','WORLDVIEW-3','MAXAR-1','PLEIADES-NEO','KOMPSAT-3','SPOT-7','COSMO-SKYMED','SAR-LUPE-3','HELIOS-2B','OFEK-16','EROS-C3','KH-13'];
+const JAM_PTS=[[47,35],[46,38],[48,32],[35.5,33],[36,36],[54.7,20.5],[44,42],[42,35],[49,27],[51,30],[45,33],[37,30],[33,36],[32,35]];
+
+function genAC(n=40){return Array.from({length:n},()=>{const t=rc(AC_T),lat=rnd(-55,70),lng=rnd(-170,170),h=rnd(0,360);return{id:gid('AC'),callsign:['UAF','NATO','USAF','USN','RAF','RUF','USMC'][ri(0,7)]+ri(100,999),...t,lat,lng,heading:h,altitude:rnd(5000,42000),speed:rnd(300,950),squawk:String(ri(1000,7777)),velLat:Math.cos(h*Math.PI/180)*.004*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.004*rnd(.5,1.5),source:'SIM'};})}
+function genNV(n=24){return Array.from({length:n},()=>{const t=rc(VS_T),lat=rnd(-50,65),lng=rnd(-165,165),h=rnd(0,360);return{id:gid('VS'),mmsi:String(ri(200000000,800000000)),name:['ATLANTIC ','PACIFIC ','ARCTIC ','BLACK SEA ','MARINE '][ri(0,5)]+ri(1,99),...t,lat,lng,heading:h,speed:rnd(.5,20),draught:rnd(2,16),velLat:Math.cos(h*Math.PI/180)*.001*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.001*rnd(.5,1.5),source:'AIS-SIM'};})}
+function genJM(n=14){return JAM_PTS.slice(0,n).map((h,i)=>({id:`JAM-${i}`,lat:h[0]+rnd(-.4,.4),lng:h[1]+rnd(-.4,.4),radius:rnd(40,180),intensity:rnd(.35,1),source:'GPSJam-SIM'}));}
+function genSAT(n=12){const ot=['LEO-SSO','LEO-MED','MEO','HEO'];return SAT_NAMES.slice(0,n).map(name=>{const inc=rnd(55,98),alt=rnd(400,800),av=alt<600?.012:.008;return{id:gid('SAT'),name,lat:rnd(-65,65),lng:rnd(-180,180),altitude:alt,inclination:inc,orbitType:rc(ot),period:Math.round(90+alt/10),velLat:Math.cos(inc*Math.PI/180)*av*rnd(.7,1.3),velLng:Math.sin(inc*Math.PI/180)*av*rnd(.7,1.3),type:'satellite',color:'#a78bfa',resolution:['0.3m','0.5m','1m','2m','SAR'][ri(0,5)],coverageRegion:['Eastern Europe','Middle East','Global','Indo-Pacific'][ri(0,4)],lastPass:new Date(Date.now()-ri(0,7200)*1000).toISOString(),source:'CelesTrak-TLE'};})}
+function genINC(n=14){return Array.from({length:n},()=>{const t=rc(INC_T);return{id:gid('INC'),...t,lat:rnd(25,60),lng:rnd(15,55),time:new Date(Date.now()-ri(0,86400)*1000).toISOString(),confirmed:Math.random()>.3,source:'ACLED-SIM'};})}
+
+// Feed management
+function setFS(k,state,count){FEEDS[k].state=state;FEEDS[k].lastUpdate=Date.now();if(count!==undefined)FEEDS[k].count=count;renderSrcGrid();renderSrcMini();}
+async function fetchOpenSky(){
+  setFS('opensky','FETCHING');
+  try{
+    const r=await fetch('https://opensky-network.org/api/states/all?lamin=20&lomin=10&lamax=62&lomax=55',{signal:AbortSignal.timeout(9000)});
+    if(r.status===429){setFS('opensky','RATE-LIM');return null;}
+    if(!r.ok)throw new Error();
+    const d=await r.json();
+    if(!d.states?.length)throw new Error('no states');
+    const ac=d.states.map(s=>{const cs=(s[1]||'').trim(),cat=classAC(cs,s[14]);return{id:s[0],callsign:cs||'BLOCKED',...cat,lat:s[6]||0,lng:s[5]||0,altitude:(s[7]||0)*3.281,speed:(s[9]||0)*1.944,heading:s[10]||0,squawk:s[14]||'----',onGround:s[8],velLat:(s[12]||0)*0.00001,velLng:(s[11]||0)*0.00001,source:'OpenSky',real:true,dataTag:'LIVE'};}).filter(a=>a.lat&&a.lng&&!a.onGround);
+    setFS('opensky','LIVE',ac.length);osCD=15;log('i',`OpenSky: ${ac.length} live ADS-B contacts`);return ac;
+  }catch(e){setFS('opensky',e.name==='TimeoutError'?'TIMEOUT':'ERR');return null;}
+}
+function classAC(cs,sq){
+  if(sq==='7700')return{type:'emergency',label:'EMERGENCY',color:'#ef4444'};
+  if(sq==='7500')return{type:'hijack',label:'HIJACK',color:'#ef4444'};
+  if(['RFR','SHF','UAF','NATO','USAF','USN','RAF','RU','HKP'].some(p=>cs.startsWith(p)))return{type:'military',label:'MILITARY',color:'#f59e0b'};
+  if(['RCH','OSB','JAKE','COBRA'].some(p=>cs.startsWith(p)))return{type:'intel',label:'ISR',color:'#a78bfa'};
+  if(/^[A-Z]{3}\d/.test(cs))return{type:'cargo',label:'COMMERCIAL',color:'#94a3b8'};
+  return{type:'unknown',label:cs||'UNKNOWN',color:'#4a6280'};
+}
+async function fetchGPSJam(){
+  setFS('gpsjam','FETCHING');
+  const dates=[0,1].map(d=>{const dt=new Date();dt.setDate(dt.getDate()-d);return dt.toISOString().split('T')[0];});
+  for(const date of dates){
+    try{
+      const r=await fetch(`https://gpsjam.org/data/${date}.csv`,{signal:AbortSignal.timeout(7000)});
+      if(!r.ok)continue;
+      const txt=await r.text();
+      const zones=[];
+      txt.trim().split('\n').slice(1).forEach(l=>{const c=l.split(',');if(c.length<4)return;const lat=parseFloat(c[0]),lng=parseFloat(c[1]),prob=parseFloat(c[3]||c[2]);if(!isNaN(lat)&&!isNaN(lng)&&!isNaN(prob)&&prob>=0.3)zones.push({id:`JAM-${lat.toFixed(1)}-${lng.toFixed(1)}`,lat,lng,radius:30+prob*120,intensity:prob,source:'GPSJam.org',date,real:true,dataTag:'LIVE'});});
+      if(zones.length){setFS('gpsjam','LIVE',zones.length);log('i',`GPSJam ${date}: ${zones.length} real jamming zones`);return zones;}
+    }catch{}
+  }
+  setFS('gpsjam','SIM');return genJM(14);
+}
+
+// ════════════════════════════════════════════════════════════
+//  THREE.JS GLOBE — Google Earth Style
+// ════════════════════════════════════════════════════════════
+const G={scene:null,renderer:null,camera:null,earth:null,atm:null,grp:{},mouse:{dn:false,x:0,y:0},rot:{x:.2,y:0},vel:{x:0,y:.0006}};
+
+function ll3(lat,lng,r=1.002){const phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
+
+function initGlobe(){
+  const canvas=document.getElementById('globe-canvas'),stage=document.getElementById('stage');
+  const W=stage.clientWidth,H=stage.clientHeight-46;
+  G.renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false});
+  G.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  G.renderer.setSize(W,H);G.renderer.setClearColor(0x020811,1);
+  G.scene=new THREE.Scene();
+  G.camera=new THREE.PerspectiveCamera(40,W/H,.1,300);G.camera.position.set(0,0,2.7);
+
+  // Lighting — warm directional sun + cool fill
+  G.scene.add(new THREE.AmbientLight(0x223344,.5));
+  const sun=new THREE.DirectionalLight(0xfff4e0,1.65);sun.position.set(6,3,4);G.scene.add(sun);
+  G.scene.add(Object.assign(new THREE.DirectionalLight(0x1a3366,.35),{position:new THREE.Vector3(-4,-2,-3)}));
+
+  // Stars
+  const sv=[];for(let i=0;i<8000;i++){const t=Math.random()*2*Math.PI,p=Math.acos(2*Math.random()-1),r=65+Math.random()*20;sv.push(r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}
+  const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+  G.scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0xaabbcc,size:.022,transparent:true,opacity:.8})));
+
+  // Earth
+  const em=new THREE.MeshPhongMaterial({color:0x1a4a7a,specular:new THREE.Color(0x223355),shininess:14});
+  G.earth=new THREE.Mesh(new THREE.SphereGeometry(1,128,128),em);G.scene.add(G.earth);
+  const L2=new THREE.TextureLoader();
+  const tryTex=(urls,cb,i=0)=>{if(i>=urls.length)return;L2.load(urls[i],t=>cb(t),undefined,()=>tryTex(urls,cb,i+1));};
+  tryTex(['https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg','https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg','https://unpkg.com/three-globe@2.31.1/example/img/earth-day.jpg'],t=>{em.map=t;em.needsUpdate=true;});
+  tryTex(['https://unpkg.com/three-globe/example/img/earth-topology.png'],t=>{em.bumpMap=t;em.bumpScale=.012;em.needsUpdate=true;});
+
+  // Night lights
+  tryTex(['https://unpkg.com/three-globe/example/img/earth-night.jpg'],t=>{G.scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.001,128,128),new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:.25,blending:THREE.AdditiveBlending})));});
+
+  // Clouds
+  tryTex(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{const cm=new THREE.MeshPhongMaterial({map:t,transparent:true,opacity:.07,blending:THREE.AdditiveBlending,depthWrite:false});const cl=new THREE.Mesh(new THREE.SphereGeometry(1.007,64,64),cm);G.scene.add(cl);(function sc(){requestAnimationFrame(sc);cl.rotation.y+=.00004;})();});
+
+  // Atmosphere
+  G.atm=new THREE.Mesh(new THREE.SphereGeometry(1.04,64,64),new THREE.MeshPhongMaterial({color:0x2255aa,transparent:true,opacity:.12,side:THREE.FrontSide,depthWrite:false,blending:THREE.AdditiveBlending}));G.scene.add(G.atm);
+  G.scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.07,64,64),new THREE.MeshPhongMaterial({color:0x112244,transparent:true,opacity:.04,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending})));
+
+  // Grid
+  const gm=new THREE.LineBasicMaterial({color:0x1a3344,transparent:true,opacity:.15});
+  for(let lt=-60;lt<=60;lt+=30){const pts=[];for(let lg=0;lg<=360;lg+=3)pts.push(ll3(lt,lg-180,1.001));G.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+  for(let lg=-180;lg<180;lg+=30){const pts=[];for(let lt=-85;lt<=85;lt+=3)pts.push(ll3(lt,lg,1.001));G.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+
+  // Marker groups
+  for(const k of['aircraft','naval','satellite','incidents','jamming','orbits']){G.grp[k]=new THREE.Group();G.scene.add(G.grp[k]);}
+
+  // Controls
+  canvas.addEventListener('mousedown',e=>{G.mouse.dn=true;G.mouse.x=e.clientX;G.mouse.y=e.clientY;G.vel.x=0;G.vel.y=0;});
+  window.addEventListener('mouseup',()=>G.mouse.dn=false);
+  window.addEventListener('mousemove',e=>{if(!G.mouse.dn)return;const dx=e.clientX-G.mouse.x,dy=e.clientY-G.mouse.y;G.rot.y+=dx*.004;G.rot.x+=dy*.003;G.rot.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,G.rot.x));G.mouse.x=e.clientX;G.mouse.y=e.clientY;G.vel.y=dx*.00012;G.vel.x=dy*.00008;});
+  canvas.addEventListener('wheel',e=>{G.camera.position.z=Math.max(1.2,Math.min(6.5,G.camera.position.z+e.deltaY*.003));e.preventDefault();},{passive:false});
+  canvas.addEventListener('click',gClick);
+
+  (function loop(){requestAnimationFrame(loop);if(!G.mouse.dn){G.rot.y+=G.vel.y;G.rot.x+=G.vel.x*.1;G.vel.y*=.993;}G.earth.rotation.set(G.rot.x,G.rot.y,0);G.atm.rotation.copy(G.earth.rotation);for(const k of Object.keys(G.grp))G.grp[k].rotation.copy(G.earth.rotation);G.renderer.render(G.scene,G.camera);})();
+}
+
+// Sprite factories
+function mkSp(color,sz=.014){const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,2,32,32,28);g.addColorStop(0,color+'ff');g.addColorStop(.5,color+'bb');g.addColorStop(1,color+'00');x.beginPath();x.arc(32,32,26,0,Math.PI*2);x.fillStyle=g;x.fill();x.beginPath();x.arc(32,32,18,0,Math.PI*2);x.strokeStyle=color+'cc';x.lineWidth=2;x.stroke();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:true}));sp.scale.set(sz,sz,1);return sp;}
+function mkSat(sz=.018){const c=document.createElement('canvas');c.width=c.height=80;const x=c.getContext('2d');x.fillStyle='#a78bfa';x.fillRect(32,24,16,32);x.fillStyle='#3b82f6';x.fillRect(6,30,22,10);x.fillRect(52,30,22,10);const g=x.createRadialGradient(40,40,4,40,40,34);g.addColorStop(0,'rgba(167,139,250,.3)');g.addColorStop(1,'rgba(167,139,250,0)');x.beginPath();x.arc(40,40,34,0,Math.PI*2);x.fillStyle=g;x.fill();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));sp.scale.set(sz,sz,1);return sp;}
+function mkJam(radius,intensity){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d'),g=x.createRadialGradient(64,64,0,64,64,58);g.addColorStop(0,`rgba(245,158,11,${intensity*.5})`);g.addColorStop(.45,`rgba(249,115,22,${intensity*.25})`);g.addColorStop(.8,`rgba(239,68,68,${intensity*.1})`);g.addColorStop(1,'rgba(239,68,68,0)');x.beginPath();x.arc(64,64,58,0,Math.PI*2);x.fillStyle=g;x.fill();x.beginPath();x.arc(64,64,52,0,Math.PI*2);x.strokeStyle=`rgba(245,158,11,${intensity*.25})`;x.lineWidth=2;x.stroke();const sz=.019+(radius/100)*.058;const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false,blending:THREE.AdditiveBlending}));sp.scale.set(sz,sz,1);return sp;}
+function mkOrbit(sat){const pts=[],steps=120,inc=sat.inclination*Math.PI/180,lon0=sat.lng*Math.PI/180,r=1.024+(sat.altitude/6371)*.08;for(let i=0;i<=steps;i++){const a=(i/steps)*2*Math.PI,x0=r*Math.cos(a),y0=r*Math.sin(a)*Math.cos(inc),z0=r*Math.sin(a)*Math.sin(inc),x1=x0*Math.cos(lon0)-z0*Math.sin(lon0),z1=x0*Math.sin(lon0)+z0*Math.cos(lon0);pts.push(new THREE.Vector3(x1,y0,z1));}return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0xa78bfa,transparent:true,opacity:.18,blending:THREE.AdditiveBlending}));}
+
+function rebuildGlobe(){
+  const cl=k=>{const g=G.grp[k];while(g.children.length)g.remove(g.children[0]);};
+  ['aircraft','naval','satellite','incidents','jamming','orbits'].forEach(cl);
+  if(S.layers.aircraft)S.tracks.aircraft.forEach((ac,i)=>{if(!ac.lat||!ac.lng)return;const s=mkSp(ac.color||'#22d3ee',.015);s.position.copy(ll3(ac.lat,ac.lng));s.userData={type:'aircraft',idx:i};G.grp.aircraft.add(s);});
+  if(S.layers.naval)S.tracks.naval.forEach((vs,i)=>{const s=mkSp(vs.color||'#10b981',.015);s.position.copy(ll3(vs.lat,vs.lng));s.userData={type:'naval',idx:i};G.grp.naval.add(s);});
+  if(S.layers.satellite)S.tracks.satellite.forEach((sat,i)=>{const s=mkSat();s.position.copy(ll3(sat.lat,sat.lng,1.012));s.userData={type:'satellite',idx:i};G.grp.satellite.add(s);G.grp.orbits.add(mkOrbit(sat));});
+  if(S.layers.incidents)S.tracks.incidents.forEach((inc,i)=>{const s=mkSp(inc.color||'#ef4444',.016);s.position.copy(ll3(inc.lat,inc.lng));s.userData={type:'incident',idx:i};G.grp.incidents.add(s);});
+  if(S.layers.jamming)S.jamming.forEach(jz=>{const s=mkJam(jz.radius,jz.intensity);s.position.copy(ll3(jz.lat,jz.lng,1.001));G.grp.jamming.add(s);});
+}
+function updateGlobePos(){
+  S.tracks.aircraft.forEach((ac,i)=>{if(G.grp.aircraft.children[i]&&ac.lat&&ac.lng)G.grp.aircraft.children[i].position.copy(ll3(ac.lat,ac.lng));});
+  S.tracks.naval.forEach((vs,i)=>{if(G.grp.naval.children[i])G.grp.naval.children[i].position.copy(ll3(vs.lat,vs.lng));});
+  S.tracks.satellite.forEach((sat,i)=>{if(G.grp.satellite.children[i])G.grp.satellite.children[i].position.copy(ll3(sat.lat,sat.lng,1.012));});
+}
+function gClick(e){
+  const rect=document.getElementById('globe-canvas').getBoundingClientRect();
+  const mouse=new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1,-((e.clientY-rect.top)/rect.height)*2+1);
+  const ray=new THREE.Raycaster();ray.setFromCamera(mouse,G.camera);
+  const all=[];for(const k of['aircraft','naval','satellite','incidents'])all.push(...G.grp[k].children);
+  const hits=ray.intersectObjects(all);
+  if(hits.length){const{type,idx}=hits[0].object.userData;if(type&&idx!==undefined){const t=type==='aircraft'?S.tracks.aircraft[idx]:type==='naval'?S.tracks.naval[idx]:type==='satellite'?S.tracks.satellite[idx]:S.tracks.incidents[idx];if(t)showTarget(t,type);}}
+}
+
+// Leaflet
+function ensureMap(){
+  if(S.mapReady)return;
+  if(typeof L==='undefined'){setTimeout(ensureMap,300);return;}
+  S.mapReady=true;
+  document.getElementById('map-wrap').style.display='block';
+  S.map=L.map('map',{center:[35,25],zoom:3,zoomControl:false,attributionControl:true});
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© ESRI',maxZoom:19}).addTo(S.map);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{opacity:.65,maxZoom:19}).addTo(S.map);
+  L.control.zoom({position:'bottomright'}).addTo(S.map);
+  S.map.on('mousemove',e=>{document.querySelector('#hcur span').textContent=`${e.latlng.lat.toFixed(3)}°N ${e.latlng.lng.toFixed(3)}°E`;});
+  rebuildMapMarkers();
+}
+function mkLI(html,color){return L.divIcon({className:'',html:`<div style="font-size:14px;filter:drop-shadow(0 0 5px ${color});cursor:pointer">${html}</div>`,iconSize:[16,16],iconAnchor:[8,8]});}
+function clearMM(t){(S.mapMarkers[t]||[]).forEach(m=>S.map.removeLayer(m));S.mapMarkers[t]=[];}
+function rebuildMapMarkers(){
+  if(!S.mapReady||!S.map)return;
+  ['aircraft','naval','satellite','incidents'].forEach(clearMM);
+  if(S.layers.aircraft)S.tracks.aircraft.forEach(ac=>{if(!ac.lat||!ac.lng)return;S.mapMarkers.aircraft.push(L.marker([ac.lat,ac.lng],{icon:mkLI('✈',ac.color||'#22d3ee')}).addTo(S.map).on('click',()=>showTarget(ac,'aircraft')));});
+  if(S.layers.naval)S.tracks.naval.forEach(vs=>{S.mapMarkers.naval.push(L.marker([vs.lat,vs.lng],{icon:mkLI('⛴',vs.color||'#10b981')}).addTo(S.map).on('click',()=>showTarget(vs,'naval')));});
+  if(S.layers.satellite)S.tracks.satellite.forEach(sat=>{S.mapMarkers.satellite.push(L.marker([sat.lat,sat.lng],{icon:mkLI('🛰','#a78bfa')}).addTo(S.map).on('click',()=>showTarget(sat,'satellite')));});
+  if(S.layers.incidents)S.tracks.incidents.forEach(inc=>{S.mapMarkers.incidents.push(L.marker([inc.lat,inc.lng],{icon:mkLI(inc.em,inc.color)}).addTo(S.map).on('click',()=>showTarget(inc,'incident')));});
+  S.jamCircles.forEach(c=>S.map.removeLayer(c));S.jamCircles=[];
+  if(S.layers.jamming)S.jamming.forEach(jz=>{S.jamCircles.push(L.circle([jz.lat,jz.lng],{radius:jz.radius*1000,color:'#f59e0b',fillColor:'#f97316',fillOpacity:.1,opacity:.4,weight:1,dashArray:'4 4'}).addTo(S.map));});
+}
+function updateMapPos(){
+  if(!S.mapReady)return;
+  S.tracks.aircraft.forEach((ac,i)=>{if(S.mapMarkers.aircraft[i])S.mapMarkers.aircraft[i].setLatLng([ac.lat,ac.lng]);});
+  S.tracks.naval.forEach((vs,i)=>{if(S.mapMarkers.naval[i])S.mapMarkers.naval[i].setLatLng([vs.lat,vs.lng]);});
+  S.tracks.satellite.forEach((sat,i)=>{if(S.mapMarkers.satellite[i])S.mapMarkers.satellite[i].setLatLng([sat.lat,sat.lng]);});
+}
+
+// View
+function setView(v){
+  S.view=v;
+  document.querySelectorAll('.vb').forEach(b=>b.classList.remove('on'));
+  document.getElementById('v'+v[0])?.classList.add('on');
+  const gw=document.getElementById('globe-canvas').parentElement,mw=document.getElementById('map-wrap');
+  const vl=document.querySelector('#hv span');
+  if(v==='globe'){gw.style.cssText='position:absolute;inset:0;';mw.style.display='none';vl.textContent='3D GLOBE';rszGlobe();}
+  else if(v==='map'){gw.style.display='none';vl.textContent='SAT MAP';ensureMap();mw.style.cssText='position:absolute;inset:0;display:block;';setTimeout(()=>S.map?.invalidateSize(true),150);}
+  else{gw.style.cssText='position:absolute;top:0;left:0;width:50%;bottom:0;';ensureMap();mw.style.cssText='position:absolute;top:0;left:50%;right:0;bottom:0;display:block;';vl.textContent='SPLIT';rszGlobe();setTimeout(()=>S.map?.invalidateSize(true),150);}
+}
+function rszGlobe(){setTimeout(()=>{const st=document.getElementById('stage');if(G.renderer&&st.clientWidth){G.renderer.setSize(st.clientWidth,st.clientHeight-46);G.camera.aspect=st.clientWidth/(st.clientHeight-46);G.camera.updateProjectionMatrix();}},80);}
+
+// Sim
+function simStep(){
+  S.tracks.aircraft.forEach(ac=>{ac.lat+=ac.velLat;ac.lng+=ac.velLng;if(ac.lat>72||ac.lat<-62)ac.velLat*=-1;ac.lng=((ac.lng+180)%360)-180;});
+  S.tracks.naval.forEach(vs=>{vs.lat+=vs.velLat;vs.lng+=vs.velLng;if(vs.lat>68||vs.lat<-55)vs.velLat*=-1;vs.lng=((vs.lng+180)%360)-180;});
+  S.tracks.satellite.forEach(sat=>{sat.lat+=sat.velLat;sat.lng+=sat.velLng;if(sat.lat>72||sat.lat<-72)sat.velLat*=-1;sat.lng=((sat.lng+180)%360)-180;});
+  updateGlobePos();if(S.view==='map'||S.view==='split')updateMapPos();
+  document.querySelector('#hct span').textContent=`${S.tracks.aircraft.length+S.tracks.naval.length+S.tracks.satellite.length} ACTIVE`;
+  S.cycle++;if(S.cycle%10===0)populateTracks();
+}
+function toggleL(k,el){S.layers[k]=!S.layers[k];el.classList.toggle('on',S.layers[k]);rebuildGlobe();if(S.mapReady)rebuildMapMarkers();}
+
+// Stats
+function updateStats(){
+  const ac=S.tracks.aircraft,nv=S.tracks.naval;
+  document.getElementById('ov-ac').textContent=ac.length;
+  document.getElementById('ov-nv').textContent=nv.length;
+  document.getElementById('ov-jm').textContent=S.jamming.length;
+  document.getElementById('ov-sat').textContent=S.tracks.satellite.length;
+  document.getElementById('ov-inc').textContent=S.tracks.incidents.length;
+  document.getElementById('ov-mil').textContent=ac.filter(a=>a.type==='military'||a.type==='intel').length+nv.filter(v=>v.type==='military').length;
+  document.getElementById('lc-ac').textContent=ac.length;
+  document.getElementById('lc-nv').textContent=nv.length;
+  document.getElementById('lc-jm').textContent=S.jamming.length;
+  document.getElementById('lc-sat').textContent=S.tracks.satellite.length;
+  document.getElementById('lc-inc').textContent=S.tracks.incidents.length;
+  const ap=Math.min(100,Math.round(ac.length*2.2)),np=Math.min(100,Math.round(nv.filter(v=>v.type==='military').length*11)),jp=Math.min(100,Math.round(S.jamming.filter(j=>j.intensity>.5).length*7));
+  setTimeout(()=>{
+    document.getElementById('pg-air').style.width=ap+'%';document.getElementById('pp-air').textContent=ap+'%';
+    document.getElementById('pg-nv').style.width=np+'%';document.getElementById('pp-nv').textContent=np+'%';
+    document.getElementById('pg-jm').style.width=jp+'%';document.getElementById('pp-jm').textContent=jp+'%';
+  },600);
+  document.getElementById('ov-time').textContent=new Date().toUTCString();
+}
+
+// Logs
+const LOGS=[];
+function log(lv,msg){LOGS.unshift({lv,msg,t:new Date().toUTCString().split(' ')[4]});if(LOGS.length>60)LOGS.pop();renderAlerts();}
+function renderAlerts(){const el=document.getElementById('afl');if(!el)return;el.innerHTML=LOGS.slice(0,7).map(l=>`<div class="ai"><div class="asv ${l.lv==='a'?'hi':l.lv==='w'?'md':'lo'}"></div><div class="ab2"><div class="at">${l.msg}</div><div class="am">${l.t} UTC</div></div></div>`).join('');}
+
+// Tabs
+function showTab(id,el){
+  document.querySelectorAll('.tp').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.getElementById('tab-'+id)?.classList.add('on');el.classList.add('on');
+  if(id==='regions')buildRegions();if(id==='air')buildAir();if(id==='maritime')buildMaritime();if(id==='tracks')populateTracks();if(id==='sources')renderSrcGrid();
+}
+function tog(btn){btn.classList.toggle('open');const c=btn.nextElementSibling;if(c)c.classList.toggle('open');}
+
+// Regions tab
+function buildRegions(){
+  document.getElementById('rc').innerHTML=REGIONS.map(r=>{
+    const tc=r.threat==='CRITICAL'?'var(--red)':r.threat==='HIGH'?'var(--orange)':r.threat==='MODERATE'?'var(--gold)':'var(--green)';
+    const tb=r.threat==='CRITICAL'?'hot':r.threat==='HIGH'?'warn':r.threat==='MODERATE'?'warn':'ok';
+    const rac=S.tracks.aircraft.filter(a=>Math.abs(a.lat-r.lat)<16&&Math.abs(a.lng-r.lng)<26).length;
+    const rnv=S.tracks.naval.filter(v=>Math.abs(v.lat-r.lat)<13&&Math.abs(v.lng-r.lng)<23).length;
+    const ri2=S.tracks.incidents.filter(i=>Math.abs(i.lat-r.lat)<16&&Math.abs(i.lng-r.lng)<26).length;
+    return `<div class="bs"><button class="btog" onclick="tog(this)"><span class="tico">+</span><span style="font-size:15px;margin-right:3px">${r.icon}</span><span class="tlbl">${r.name}</span><span class="tbadge ${tb}">${r.threat}</span></button><div class="bcont"><div class="art"><div class="acat" style="color:${tc}">● ${r.threat} — SITREP</div><div class="atit">${r.name} Theater</div><div class="abdy">${r.desc}</div><div style="margin:8px 0"><div class="dr"><span class="dk">AIRCRAFT IN AOR</span><span class="dv ${rac>5?'r':rac>2?'a':'g'}">${rac}</span></div><div class="dr"><span class="dk">NAVAL CONTACTS</span><span class="dv ${rnv>3?'r':rnv>1?'a':'g'}">${rnv}</span></div><div class="dr"><span class="dk">INCIDENTS 24H</span><span class="dv ${ri2>2?'r':ri2>0?'a':'g'}">${ri2}</span></div><div class="dr"><span class="dk">COORDINATES</span><span class="dv">${r.lat}°N ${r.lng}°E</span></div></div><div class="aft"><span class="atm">${new Date().toUTCString().substring(5,22)}</span><span class="atag" style="border-color:${tc};color:${tc}">${r.threat}</span></div></div></div></div>`;
+  }).join('');
+}
+
+// Air tab
+function buildAir(){
+  const ac=S.tracks.aircraft,mil=ac.filter(a=>a.type==='military'||a.type==='intel'),live=ac.filter(a=>a.real);
+  document.getElementById('airc').innerHTML=`
+    <div class="bs"><button class="btog open" onclick="tog(this)"><span class="tico">+</span><span class="tlbl">Air Domain Overview</span><span class="tbadge ${live.length>0?'ok':'warn'}">${live.length>0?'LIVE ADS-B':'SIM'}</span></button>
+    <div class="bcont open"><div class="art"><div class="acat" style="color:var(--cyan)">✈ ADS-B — OPENSKY NETWORK</div><div class="atit">${ac.length} Airborne Contacts</div><div class="abdy">${live.length>0?`${live.length} real ADS-B contacts from OpenSky Network (same 40,000-feeder infrastructure as FlightRadar24).`:`OpenSky rate-limited. ${ac.length} simulated contacts using real classification patterns.`}</div>
+    <div style="margin:7px 0"><div class="dr"><span class="dk">TOTAL AIRBORNE</span><span class="dv">${ac.length}</span></div><div class="dr"><span class="dk">MILITARY / ISR</span><span class="dv r">${mil.length}</span></div><div class="dr"><span class="dk">COMMERCIAL</span><span class="dv g">${ac.filter(a=>a.type==='cargo').length}</span></div><div class="dr"><span class="dk">LIVE FEED</span><span class="dv ${live.length>0?'g':'a'}">${live.length>0?'OPENSKY LIVE':'SIMULATED'}</span></div></div></div></div></div>
+    <div class="bs"><button class="btog open" onclick="tog(this)"><span class="tico">+</span><span class="tlbl">Military & ISR Platforms</span><span class="tbadge hot">${mil.length} TRACKED</span></button>
+    <div class="bcont open">${mil.slice(0,9).map(a=>`<div class="art" onclick="showTarget(${js(a)},'aircraft')" style="cursor:pointer"><div class="acat" style="color:${a.color}">✈ ${a.type.toUpperCase()} · ${a.source}</div><div class="atit">${a.callsign} — ${a.label}</div><div style="margin:5px 0"><div class="dr"><span class="dk">ALTITUDE</span><span class="dv c">${Math.round(a.altitude||0).toLocaleString()} ft</span></div><div class="dr"><span class="dk">SPEED</span><span class="dv">${Math.round(a.speed||0)} kts</span></div><div class="dr"><span class="dk">HDG</span><span class="dv">${Math.round(a.heading||0)}°</span></div><div class="dr"><span class="dk">SQUAWK</span><span class="dv a">${a.squawk||'----'}</span></div></div><div class="aft"><span class="atm">${a.real?'● LIVE':'◎ SIM'}</span><span class="atag" style="border-color:${a.color};color:${a.color}">${a.type.toUpperCase()}</span></div></div>`).join('')}</div></div>`;
+}
+
+// Maritime tab
+function buildMaritime(){
+  const nv=S.tracks.naval,mil=nv.filter(v=>v.type==='military');
+  document.getElementById('marc').innerHTML=`
+    <div class="bs"><button class="btog open" onclick="tog(this)"><span class="tico">+</span><span class="tlbl">Maritime Domain Overview</span><span class="tbadge warn">AIS SIM</span></button>
+    <div class="bcont open"><div class="art"><div class="acat" style="color:var(--green)">⛴ AIS — MARITIME TRACKING</div><div class="atit">${nv.length} Vessels Tracked</div><div class="abdy">Live AIS available via aisstream.io (free registration). Currently displaying simulated AIS in real vessel classification format. Register at <span style="color:var(--cyan)">aisstream.io</span> for live positions.</div>
+    <div style="margin:7px 0"><div class="dr"><span class="dk">TOTAL VESSELS</span><span class="dv">${nv.length}</span></div><div class="dr"><span class="dk">WARSHIPS</span><span class="dv r">${mil.length}</span></div><div class="dr"><span class="dk">COMMERCIAL</span><span class="dv g">${nv.filter(v=>v.type==='cargo'||v.type==='tanker').length}</span></div></div></div></div></div>
+    <div class="bs"><button class="btog open" onclick="tog(this)"><span class="tico">+</span><span class="tlbl">Naval Assets</span><span class="tbadge hot">${mil.length} WARSHIPS</span></button>
+    <div class="bcont open">${mil.slice(0,9).map(v=>`<div class="art" onclick="showTarget(${js(v)},'naval')" style="cursor:pointer"><div class="acat" style="color:${v.color}">⛴ ${v.label}</div><div class="atit">${v.name.trim()}</div><div style="margin:5px 0"><div class="dr"><span class="dk">MMSI</span><span class="dv">${v.mmsi}</span></div><div class="dr"><span class="dk">SPEED</span><span class="dv">${v.speed.toFixed(1)} kts</span></div><div class="dr"><span class="dk">COURSE</span><span class="dv">${Math.round(v.heading)}°</span></div><div class="dr"><span class="dk">POSITION</span><span class="dv">${(v.lat).toFixed(3)}°N ${(v.lng).toFixed(3)}°E</span></div></div><div class="aft"><span class="atm">◎ AIS-SIM</span><span class="atag" style="border-color:var(--red);color:var(--red)">WARSHIP</span></div></div>`).join('')}</div></div>`;
+}
+
+// Tracks tab
+function populateTracks(){
+  const el=document.getElementById('tlist');if(!el)return;
+  const tf=S.tf;
+  const acs=S.tracks.aircraft.filter(a=>tf==='all'||a.type===tf).slice(0,14);
+  const nvs=S.tracks.naval.filter(v=>tf==='all'||tf==='nval'||v.type===tf).slice(0,8);
+  el.innerHTML=[...acs.map(a=>`<div class="tc" onclick="showTarget(${js(a)},'aircraft')"><div class="tci" style="filter:drop-shadow(0 0 5px ${a.color})"">✈</div><div class="tcb"><div class="tcid" style="color:${a.color}">${a.callsign}</div><div class="tcm">${a.label}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><div class="tcv">${Math.round(a.speed||0)}kt</div><div class="${a.real?'tlive':'tsim'}">${a.real?'LIVE':'SIM'}</div></div></div>`),
+  ...nvs.map(v=>`<div class="tc" onclick="showTarget(${js(v)},'naval')"><div class="tci" style="filter:drop-shadow(0 0 5px ${v.color})">⛴</div><div class="tcb"><div class="tcid" style="color:${v.color}">${v.name.trim()}</div><div class="tcm">${v.label}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><div class="tcv">${v.speed.toFixed(1)}kt</div><div class="tsim">SIM</div></div></div>`)].join('')||'<div style="padding:14px;font-family:DM Mono,monospace;font-size:9px;color:var(--muted);text-align:center">NO TRACKS</div>';
+}
+function setTF(t,el){S.tf=t;document.querySelectorAll('.tf').forEach(e=>e.classList.remove('on'));el.classList.add('on');populateTracks();}
+
+// Sources
+function renderSrcGrid(){
+  const el=document.getElementById('srcg');if(!el)return;
+  el.innerHTML=Object.entries(FEEDS).map(([k,f])=>{const sc=f.state==='LIVE'?'live':f.state==='SIM'||f.state.startsWith('SIM')?'sim':f.state==='ERR'||f.state==='TIMEOUT'?'err':'init';const age=f.lastUpdate?`${Math.round((Date.now()-f.lastUpdate)/1000)}s ago`:'—';const cd=k==='opensky'&&(f.state==='LIVE'||f.state==='RATE-LIM')?` (${osCD}s)`:'';return`<div class="srcc"><div class="srcn">${f.label}</div><div class="srcs ${sc}">${f.state}${cd}</div><div class="srcd">${f.count?f.count+' ·':''} ${age}</div></div>`;}).join('');
+}
+function renderSrcMini(){const el=document.getElementById('smini');if(!el)return;el.innerHTML=Object.entries(FEEDS).map(([k,f])=>{const c=f.state==='LIVE'?'var(--green)':f.state.startsWith('SIM')?'var(--gold)':'var(--muted)';return`<div class="dr"><span class="dk">${f.label}</span><span class="dv" style="color:${c}">${f.state}${f.count?' ('+f.count+')':''}</span></div>`;}).join('');}
+
+// Target popup
+function showTarget(t,type){
+  const flds=ps=>ps.map(([k,v,c])=>`<div class="dr"><span class="dk">${k}</span><span class="dv ${c||''}">${v}</span></div>`).join('');
+  let h='';
+  if(type==='aircraft')h=`<div style="margin-bottom:9px"><div style="font-family:Syne,sans-serif;font-size:15px;font-weight:700;color:${t.color||'var(--cyan)'}">${t.callsign}</div><div style="font-size:9px;color:var(--muted);font-family:DM Mono,monospace">${t.label} · ${t.source}</div></div>${flds([['ALT',Math.round(t.altitude||0).toLocaleString()+' ft','c'],['SPEED',Math.round(t.speed||0)+' kts'],['HDG',Math.round(t.heading||0)+'°'],['SQUAWK',t.squawk||'----','a'],['LAT',(t.lat||0).toFixed(4)+'°'],['LNG',(t.lng||0).toFixed(4)+'°'],['DATA',t.real?'● LIVE':'◎ SIM',t.real?'g':'a']])}`;
+  else if(type==='naval')h=`<div style="margin-bottom:9px"><div style="font-family:Syne,sans-serif;font-size:15px;font-weight:700;color:${t.color||'var(--green)'}">${(t.name||'').trim()}</div><div style="font-size:9px;color:var(--muted);font-family:DM Mono,monospace">${t.label} · ${t.mmsi}</div></div>${flds([['SPEED',(t.speed||0).toFixed(1)+' kts'],['COURSE',Math.round(t.heading||0)+'°'],['DRAUGHT',(t.draught||0).toFixed(1)+' m'],['LAT',(t.lat||0).toFixed(4)+'°'],['LNG',(t.lng||0).toFixed(4)+'°']])}`;
+  else if(type==='satellite')h=`<div style="margin-bottom:9px"><div style="font-family:Syne,sans-serif;font-size:15px;font-weight:700;color:var(--purple)">${t.name}</div><div style="font-size:9px;color:var(--muted);font-family:DM Mono,monospace">${t.orbitType} · ${t.source}</div></div>${flds([['ALT',(t.altitude||0).toFixed(0)+' km','p'],['PERIOD',(t.period||94)+' min'],['INCLINATION',(t.inclination||0).toFixed(1)+'°'],['RESOLUTION',t.resolution||'1m','g'],['COVERAGE',t.coverageRegion||'Global']])}`;
+  else if(type==='incident')h=`<div style="margin-bottom:9px"><div style="font-family:Syne,sans-serif;font-size:15px;font-weight:700;color:${t.color||'var(--red)'}">${t.em} ${t.label}</div><div style="font-size:9px;color:var(--muted);font-family:DM Mono,monospace">${t.confirmed?'✓ CONFIRMED':'⚠ UNVERIFIED'}</div></div>${flds([['TIME',new Date(t.time||0).toUTCString().substring(5,22),'a'],['LAT',(t.lat||0).toFixed(4)+'°'],['LNG',(t.lng||0).toFixed(4)+'°']])}`;
+  document.getElementById('tpbody').innerHTML=h;document.getElementById('tpop').classList.add('vis');
+}
+function closeTgt(){document.getElementById('tpop').classList.remove('vis');}
+function js(o){return JSON.stringify(o).replace(/"/g,"'");}
+
+// Clock / TL
+function updateClock(){
+  const n=new Date();document.getElementById('uclock').textContent=`${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;
+  S.rsecs++;const m=Math.floor(S.rsecs/60),s=S.rsecs%60;document.getElementById('rage').textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  if(FEEDS.opensky.state==='LIVE'||FEEDS.opensky.state==='RATE-LIM'){osCD=Math.max(0,osCD-1);renderSrcGrid();}
+}
+function updateTL(){
+  const now=new Date(),start=new Date(now-24*3600000);
+  document.getElementById('tl0').textContent=`${String(start.getUTCHours()).padStart(2,'0')}:00`;
+  document.getElementById('tlct').textContent=`${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')} UTC`;
+  document.getElementById('tlevts').innerHTML=S.tracks.incidents.map(e=>{const p=(new Date(e.time)-start)/(24*3600000)*100;return`<div class="tldot" style="left:${p}%;background:${e.color}"></div>`;}).join('');
+}
+function seekTL(e){const r=e.currentTarget.getBoundingClientRect();S.phPct=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100));document.getElementById('tlh').style.left=S.phPct+'%';}
+function togglePlay(){S.playing=!S.playing;document.getElementById('pbtn').textContent=S.playing?'⏸':'▶';document.getElementById('pbtn').classList.toggle('on',S.playing);}
+function stepTL(d){S.phPct=Math.max(0,Math.min(100,S.phPct+d*2));document.getElementById('tlh').style.left=S.phPct+'%';}
+function goLive(){S.phPct=100;document.getElementById('tlh').style.left='100%';}
+function setSpd(v){S.speed=Number(v);}
+
+// AI Bot
+function buildCtx(){
+  const ac=S.tracks.aircraft,nv=S.tracks.naval,sat=S.tracks.satellite,inc=S.tracks.incidents,jm=S.jamming;
+  if(!ac.length&&!nv.length)return'Feeds initializing.';
+  const mil=ac.filter(a=>a.type==='military'||a.type==='intel'),milNV=nv.filter(v=>v.type==='military'),hiJ=jm.filter(j=>j.intensity>.7),live=ac.filter(a=>a.real);
+  return`=== SENTINEL LIVE INTEL — ${new Date().toUTCString()} ===
+AIR: ${ac.length} aircraft (${mil.length} military/ISR, ${live.length} live ADS-B)
+  Military: ${mil.slice(0,6).map(a=>`${a.callsign}[${a.label}]@${(a.altitude/1000).toFixed(0)}kft`).join(', ')}
+SEA: ${nv.length} vessels (${milNV.length} warships)
+  Warships: ${milNV.slice(0,5).map(v=>`${v.name.trim()}[${v.label}]${v.speed.toFixed(1)}kt`).join(', ')}
+EW/GPS: ${jm.length} jamming zones (${hiJ.length} high-intensity >70%)
+  Hotspots: ${hiJ.slice(0,4).map(j=>`${j.lat.toFixed(1)}N,${j.lng.toFixed(1)}E r=${j.radius.toFixed(0)}km ${(j.intensity*100).toFixed(0)}%`).join(' | ')}
+SPACE: ${sat.length} satellites: ${sat.map(s=>`${s.name}@${s.altitude.toFixed(0)}km[${s.resolution}]`).slice(0,5).join(', ')}
+INCIDENTS: ${inc.length} events (${inc.filter(i=>i.confirmed).length} confirmed) types: ${[...new Set(inc.map(i=>i.label))].join(', ')}
+THEATER: Eastern Europe/Black Sea/Middle East/Indo-Pacific/Global
+DATA: Air=${live.length>0?'LIVE':'SIM'} Naval=SIM GPS-Jam=${jm.some(j=>j.real)?'LIVE':'SIM'}`;
+}
+async function sendBot(){
+  const inp=document.getElementById('binp'),btn=document.getElementById('bsnd');
+  const msg=inp.value.trim();if(!msg)return;inp.value='';btn.disabled=true;appendMsg(msg,'u');
+  if(!S.tracks.aircraft.length&&!S.tracks.naval.length){appendMsg('⚠ Feeds still loading — wait a moment then re-query.','b');btn.disabled=false;return;}
+  const typ=appendMsg('Analyzing feeds...','b t');
+  S.botHist.push({role:'user',content:msg});if(S.botHist.length>14)S.botHist=S.botHist.slice(-14);
+  try{
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,
+        system:`You are SENTINEL AI, elite OSINT analyst. You have LIVE OPERATIONAL DATA — never say feeds are unavailable when counts are in context. Be direct, reference specific callsigns/coordinates/vessels. Military analyst voice. Structure clearly.\n\n${buildCtx()}`,
+        messages:S.botHist})});
+    const d=await resp.json();const reply=d.content?.[0]?.text||'Feed error.';typ.remove();appendMsg(reply,'b');S.botHist.push({role:'assistant',content:reply});
+  }catch(e){typ.remove();appendMsg(`COMMS ERROR: ${e.message||'Network'}. Retry.`,'b');}
+  btn.disabled=false;
+}
+function qp(msg){document.getElementById('binp').value=msg;sendBot();}
+function appendMsg(text,cls){const chat=document.getElementById('bchat'),div=document.createElement('div');div.className='bm '+cls;div.textContent=text;chat.appendChild(div);chat.scrollTop=chat.scrollHeight;return div;}
+
+// Boot
+const BMSG=['Initializing globe engine...','Connecting OpenSky ADS-B...','Fetching GPSJam data...','Loading TLE satellites...','Calibrating world threat matrix...','Spawning AI analyst...','SENTINEL online.'];
+let bi=0;
+function bootStep(){if(bi<BMSG.length){document.getElementById('bstat').textContent=BMSG[bi++];setTimeout(bootStep,320);}else{setTimeout(()=>{const b=document.getElementById('boot');b.classList.add('out');setTimeout(()=>b.style.display='none',800);},300);}}
+const RNDEVT=[['a','Squawk 7500 — unidentified contact E Ukraine'],['w','GPS jamming spike Black Sea +14dBHz'],['i','AIS contact: warship entering Bosphorus'],['w','ISR platform active conflict zone'],['a','SIGINT: possible UAV swarm coordination'],['i','Satellite pass: imaging asset overhead'],['w','Naval formation: Kerch Strait'],['a','GNSS denial confirmed E Crimea']];
+
+async function sentinelBoot(){
+  bootStep();initGlobe();
+  setTimeout(async()=>{
+    log('i','OpenSky ADS-B query initiated...');
+    const rAC=await fetchOpenSky();
+    if(rAC?.length>0)S.tracks.aircraft=rAC;else{S.tracks.aircraft=genAC(40);log('w','OpenSky unavailable — simulated ADS-B');}
+    log('i','GPSJam.org interference fetch...');
+    S.jamming=await fetchGPSJam();
+    S.tracks.naval=genNV(24);setFS('ais','SIM (aisstream.io)',24);
+    S.tracks.satellite=genSAT(12);setFS('celestrak','SIM (TLE)',12);
+    S.tracks.incidents=genINC(14);setFS('acled','SIM',14);
+    updateStats();rebuildGlobe();updateTL();populateTracks();buildRegions();
+    const lc=S.tracks.aircraft.filter(a=>a.real).length;
+    setTimeout(()=>appendMsg(`✅ ONLINE — ${S.tracks.aircraft.length} aircraft (${lc>0?lc+' LIVE ADS-B':'sim'}), ${S.tracks.naval.length} vessels, ${S.jamming.length} jam zones ${S.jamming.some(j=>j.real)?'(GPSJam LIVE)':'(sim)'}, ${S.tracks.satellite.length} satellites, ${S.tracks.incidents.length} incidents.`,'b'),800);
+    setInterval(simStep,1200);setInterval(updateClock,1000);updateClock();
+    setInterval(()=>{if(S.playing){S.phPct=Math.min(100,S.phPct+.08*S.speed);document.getElementById('tlh').style.left=S.phPct+'%';}updateTL();},1000);
+    setInterval(()=>{const e=rc(RNDEVT);log(e[0],e[1]);},5000+Math.random()*4000);
+    async function pollOS(){osCD=15;const ac=await fetchOpenSky();if(ac?.length>0){S.tracks.aircraft=ac;rebuildGlobe();if(S.mapReady)rebuildMapMarkers();updateStats();}setTimeout(pollOS,15000);}
+    setTimeout(pollOS,15000);
+    setInterval(async()=>{const z=await fetchGPSJam();if(z){S.jamming=z;rebuildGlobe();if(S.mapReady)rebuildMapMarkers();updateStats();}},3600000);
+    window.addEventListener('resize',()=>{rszGlobe();if(S.mapReady&&S.map)S.map.invalidateSize();});
+  },BMSG.length*320+500);
+}
+
+(function(){
+  const s=document.createElement('script');s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  s.onload=sentinelBoot;s.onerror=()=>{const s2=document.createElement('script');s2.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';s2.onload=sentinelBoot;document.head.appendChild(s2);};
+  document.head.appendChild(s);
+})();
+
+// ════════════════════════════════════════════════════════════
+//  TTS ENGINE — Web Speech API
+// ════════════════════════════════════════════════════════════
+const TTS={synth:window.speechSynthesis,voices:[],voice:null,rate:1.0,speaking:false,vizTimer:null,utt:null};
+function ttsInit(){
+  if(!TTS.synth){document.getElementById('tts-bar').style.display='none';return;}
+  const load=()=>{
+    TTS.voices=TTS.synth.getVoices().filter(v=>v.lang.startsWith('en'));
+    const sel=document.getElementById('tts-voice');
+    sel.innerHTML=TTS.voices.map((v,i)=>`<option value="${i}">${v.name.replace('Google ','').replace('Microsoft ','').substring(0,22)}</option>`).join('');
+    const pref=['David','Daniel','James','Alex','Neural','Natural'];
+    let pi=TTS.voices.findIndex(v=>pref.some(p=>v.name.includes(p)));
+    sel.value=pi>=0?pi:0;
+    TTS.voice=TTS.voices[sel.value>=0?parseInt(sel.value):0];
+  };
+  TTS.synth.onvoiceschanged=load;
+  load();
+}
+function ttsSetVoice(){TTS.voice=TTS.voices[document.getElementById('tts-voice').value];}
+function ttsSetRate(v){TTS.rate=parseFloat(v);document.getElementById('tts-rate-lbl').textContent=parseFloat(v).toFixed(1)+'x';}
+function ttsGetTabText(){
+  const panel=document.querySelector('.tp.on');
+  if(!panel)return'No active panel.';
+  const tab=document.querySelector('.tab.on');
+  const tabName=tab?tab.textContent.trim():'Tab';
+  const parts=[`SENTINEL Intelligence Brief. ${tabName} tab.`];
+  const ids=['ov-ac','ov-nv','ov-jm','ov-sat','ov-inc','ov-mil'];
+  const lbls=['aircraft','vessels','jamming zones','satellites','incidents','military assets'];
+  ids.forEach((id,i)=>{const el=document.getElementById(id);if(el&&el.textContent!=='—')parts.push(`${el.textContent} ${lbls[i]}.`);});
+  const seen=new Set();
+  const all=panel.querySelectorAll('.atit,.abdy,.abdy *,.sl,.sv,.at,.acat');
+  all.forEach(el=>{const t=el.textContent.trim();if(t.length>3&&!seen.has(t)){seen.add(t);parts.push(t);}});
+  return parts.join(' ').replace(/\s+/g,' ').substring(0,4000);
+}
+function ttsReadTab(){ttsStop();ttsSay(ttsGetTabText());}
+function ttsSay(text){
+  if(!TTS.synth||!text)return;
+  TTS.synth.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.voice=TTS.voice;u.rate=TTS.rate;u.pitch=0.92;u.volume=1;TTS.utt=u;
+  const stat=document.getElementById('tts-status'),play=document.getElementById('tts-play'),stop=document.getElementById('tts-stop'),chip=document.getElementById('haud');
+  u.onstart=()=>{TTS.speaking=true;play.style.display='none';stop.style.display='';if(chip)chip.classList.add('speaking');stat.innerHTML='<span>SPEAKING</span> \u2014 '+text.substring(0,38)+'...';ttsVizStart();};
+  u.onend=u.onerror=()=>{TTS.speaking=false;play.style.display='';stop.style.display='none';if(chip)chip.classList.remove('speaking');stat.textContent='READY';ttsVizStop();};
+  TTS.synth.speak(u);
+}
+function ttsStop(){TTS.synth&&TTS.synth.cancel();TTS.speaking=false;document.getElementById('tts-play').style.display='';document.getElementById('tts-stop').style.display='none';const c=document.getElementById('haud');if(c)c.classList.remove('speaking');document.getElementById('tts-status').textContent='READY';ttsVizStop();}
+function ttsVizStart(){const b=[0,1,2,3,4].map(i=>document.getElementById('tv'+i));TTS.vizTimer=setInterval(()=>{b.forEach(x=>{if(x)x.style.height=(3+Math.random()*14)+'px';});},110);}
+function ttsVizStop(){clearInterval(TTS.vizTimer);[0,1,2,3,4].forEach(i=>{const b=document.getElementById('tv'+i);if(b)b.style.height='4px';});}
+// Add read button to bot messages
+const _oAM=appendMsg;
+window.appendMsg=function(text,cls){
+  const el=_oAM(text,cls);
+  if(el&&cls&&cls.includes('b')&&!cls.includes('t')&&!cls.includes('u')){
+    const rd=document.createElement('div');rd.className='bm-rd';rd.textContent='LISTEN';
+    rd.onclick=()=>ttsSay(text);el.appendChild(rd);
+  }
+  return el;
+};
+ttsInit();
+</script>
+</body>
+</html>
