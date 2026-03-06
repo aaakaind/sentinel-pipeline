@@ -224,6 +224,7 @@ def _classify_orbit(inclination: float, altitude_km: float) -> str:
         return "GEO"
     if altitude_km > 2000:
         return "MEO"
+    # Sun-synchronous orbits have inclination ~97-99° to maintain constant solar angle
     if 96 <= inclination <= 100:
         return "LEO-SSO"
     return "LEO"
@@ -246,8 +247,8 @@ def fetch_celestrak() -> dict:
                 if isinstance(data, list):
                     all_sats.extend(data)
                     log.info(f"CelesTrak {group}: {len(data)} objects")
-                continue
-            log.warning(f"CelesTrak {group} HTTP {r.status_code}")
+            else:
+                log.warning(f"CelesTrak {group} HTTP {r.status_code}")
         except requests.Timeout:
             log.warning(f"CelesTrak {group} timeout")
         except Exception as e:
@@ -265,9 +266,9 @@ def fetch_celestrak() -> dict:
             continue
         display_name, res, coverage = INTEL_SAT_CATALOG[norad_id]
         incl = sat.get("INCLINATION") or 0
-        peri = sat.get("PERIAPSIS") or 0
-        apo  = sat.get("APOAPSIS") or 0
-        alt  = round((peri + apo) / 2) if peri and apo else 0
+        peri = sat.get("PERIAPSIS")
+        apo  = sat.get("APOAPSIS")
+        alt  = round((peri + apo) / 2) if peri is not None and apo is not None else 0
         matched.append({
             "name": display_name,
             "norad_id": norad_id,
