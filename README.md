@@ -150,6 +150,22 @@ sentinel-pipeline/
 
 ---
 
+## Custom Domain (GitHub Pages)
+
+The SENTINEL dashboard is served via GitHub Pages at **https://sentinel.akaind.ca/**.
+
+### DNS Configuration
+
+Add the following CNAME record in your DNS provider:
+
+| Type | Host / Name | Value |
+|---|---|---|
+| `CNAME` | `sentinel` | `aaakaind.github.io` |
+
+> **Note:** The `CNAME` file in this repository tells GitHub Pages which custom domain to use. Do not remove or rename it.
+
+---
+
 ## Troubleshooting
 
 **OpenSky returning 429** — Rate limited. The fallback simulation activates automatically. Add authenticated credentials to `OPENSKY_USER` / `OPENSKY_PASS` env vars for higher rate limits.
