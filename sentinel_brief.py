@@ -494,8 +494,12 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     }
 
     log.info(f"Posting to Notion: '{title}'...")
-    r = requests.post("https://api.notion.com/v1/pages",
-                      headers=headers, json=payload, timeout=30)
+    try:
+        r = requests.post("https://api.notion.com/v1/pages",
+                          headers=headers, json=payload, timeout=30)
+    except requests.RequestException as e:
+        log.error(f"Notion connection error: {e}")
+        return None
     if r.status_code == 200:
         page = r.json()
         url  = page.get("url", "")
@@ -570,7 +574,11 @@ def main():
     if url:
         log.info(f"🛰 Daily brief published: {url}")
     elif not args.dry_run:
-        log.warning("Notion post skipped or failed — brief still saved locally.")
+        if NOTION_API_KEY and NOTION_PARENT_ID:
+            log.error("Notion API call failed — brief saved locally but not posted.")
+            sys.exit(1)
+        else:
+            log.warning("Notion post skipped (credentials not configured) — brief still saved locally.")
 
 
 if __name__ == "__main__":
