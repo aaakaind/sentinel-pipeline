@@ -14,6 +14,11 @@ Usage:
 Env vars required:
     NOTION_API_KEY      — from notion.so/my-integrations
     NOTION_PARENT_ID    — page or database ID to create briefs under
+
+Env vars optional (enable live feeds):
+    AIS_API_KEY         — from aisstream.io (free registration)
+    CELESTRAK_API_KEY   — from celestrak.org
+    ACLED_API_KEY       — from acleddata.com
 """
 
 import os
@@ -43,6 +48,10 @@ OPENSKY_TIMEOUT = 12
 GPSJAM_BASE = "https://gpsjam.org/data"
 GPSJAM_TIMEOUT = 10
 GPSJAM_MIN_PROB = 0.3
+
+AIS_API_KEY     = os.getenv("AIS_API_KEY", "")        # aisstream.io WebSocket key
+CELESTRAK_API_KEY = os.getenv("CELESTRAK_API_KEY", "")  # CelesTrak TLE API key
+ACLED_API_KEY   = os.getenv("ACLED_API_KEY", "")        # ACLED access key
 
 MILITARY_PREFIXES  = ["RFR","SHF","UAF","NATO","USAF","USN","RAF","RU","HKP","UKAF"]
 ISR_PREFIXES       = ["RCH","OSB","JAKE","COBRA","IRON","FORGE"]

@@ -46,6 +46,9 @@ In your GitHub repo: **Settings → Secrets and variables → Actions → New re
 |---|---|
 | `NOTION_API_KEY` | `secret_xxxxxxxxxxxx` (from Step 2) |
 | `NOTION_PARENT_ID` | Page ID where briefs are created (from Step 2) |
+| `AIS_API_KEY` | WebSocket API key from [aisstream.io](https://aisstream.io) (free registration) |
+| `CELESTRAK_API_KEY` | API key from [celestrak.org](https://celestrak.org) |
+| `ACLED_API_KEY` | Access key from [acleddata.com](https://acleddata.com) |
 
 ### Step 4 — Push & activate
 
@@ -92,6 +95,9 @@ python sentinel_brief.py --json-out data/2026-03-06.json
 |---|---|---|
 | `NOTION_API_KEY` | Yes | Notion internal integration token |
 | `NOTION_PARENT_ID` | Yes | Parent page/database ID for new briefs |
+| `AIS_API_KEY` | No | aisstream.io WebSocket key — enables live maritime AIS tracking |
+| `CELESTRAK_API_KEY` | No | CelesTrak API key — enables live satellite TLE data |
+| `ACLED_API_KEY` | No | ACLED access key — enables live armed conflict incident data |
 
 ---
 
