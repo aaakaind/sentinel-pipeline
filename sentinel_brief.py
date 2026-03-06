@@ -363,14 +363,15 @@ def fetch_gdelt() -> dict:
 
 def _ais_area_from_coords(lat: float, lng: float) -> str:
     """Infer maritime area name from vessel coordinates."""
-    if 44 <= lat <= 47 and 35 <= lng <= 40:
-        return "Sea of Azov"
+    # Most-specific regions first, then broader ones
     if 44.5 <= lat <= 46 and 35.5 <= lng <= 37:
         return "Kerch Strait"
-    if 40 <= lat <= 47 and 27 <= lng <= 42:
-        return "Black Sea"
     if 40.5 <= lat <= 42 and 28 <= lng <= 30:
         return "Bosphorus"
+    if 44 <= lat <= 47 and 35 <= lng <= 40:
+        return "Sea of Azov"
+    if 40 <= lat <= 47 and 27 <= lng <= 42:
+        return "Black Sea"
     if 30 <= lat <= 42 and -6 <= lng <= 36:
         return "Mediterranean"
     if 20 <= lat <= 32 and 32 <= lng <= 44:
@@ -433,8 +434,8 @@ def fetch_ais() -> dict:
                     return
                 meta = data.get("MetaData", {})
                 pos  = data.get("Message", {}).get("PositionReport", {})
-                mmsi = meta.get("MMSI", 0)
-                if not mmsi or mmsi in vessels_seen:
+                mmsi = meta.get("MMSI")
+                if mmsi is None or mmsi in vessels_seen:
                     return
 
                 name = (meta.get("ShipName") or "UNKNOWN").strip()
@@ -486,7 +487,10 @@ def fetch_ais() -> dict:
         timer = threading.Timer(AIS_COLLECT_SECS, ws.close)
         timer.daemon = True
         timer.start()
-        ws.run_forever(ping_interval=10, ping_timeout=5)
+        try:
+            ws.run_forever(ping_interval=10, ping_timeout=5)
+        finally:
+            timer.cancel()
 
         if vessels_seen:
             result["source"] = "AISstream-LIVE"
@@ -574,7 +578,7 @@ def _sim_ais(result: dict) -> dict:
     """Simulation fallback — representative AIS maritime data."""
     vessels = [
         {"name": "BLACK SEA 47", "type": "military", "label": "Destroyer",    "speed_kts": 12.3, "lat": 43.50, "lng": 34.20, "area": "Black Sea",     "nav_status": "Under way",   "source": "SIM"},
-        {"name": "AZOV 12",      "type": "military", "label": "Frigate",      "speed_kts": 8.7,  "lat": 45.20, "lng": 36.80, "area": "Sea of Azov",   "nav_status": "Under way",   "source": "SIM"},
+        {"name": "AZOV 12",      "type": "military", "label": "Frigate",      "speed_kts": 8.7,  "lat": 46.50, "lng": 38.20, "area": "Sea of Azov",   "nav_status": "Under way",   "source": "SIM"},
         {"name": "KERCH 3",      "type": "military", "label": "Landing Ship", "speed_kts": 6.2,  "lat": 45.30, "lng": 36.50, "area": "Kerch Strait",  "nav_status": "Under way",   "source": "SIM"},
         {"name": "ATLANTIC 18",  "type": "cargo",    "label": "Bulk Carrier", "speed_kts": 14.1, "lat": 36.10, "lng": 28.50, "area": "Mediterranean", "nav_status": "Under way",   "source": "SIM"},
         {"name": "PACIFIC 44",   "type": "tanker",   "label": "Oil Tanker",   "speed_kts": 11.8, "lat": 41.20, "lng": 29.10, "area": "Bosphorus",     "nav_status": "Under way",   "source": "SIM"},
