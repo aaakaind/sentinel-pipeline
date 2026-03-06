@@ -156,11 +156,32 @@ The SENTINEL dashboard is served via GitHub Pages at **https://sentinel.akaind.c
 
 ### DNS Configuration
 
-Add the following CNAME record in your DNS provider:
+In your DNS provider for `akaind.ca`, add (or update) the following record:
 
-| Type | Host / Name | Value |
-|---|---|---|
-| `CNAME` | `sentinel` | `aaakaind.github.io` |
+| Type | Host / Name | Value / Target | TTL |
+|---|---|---|---|
+| `CNAME` | `sentinel` | `aaakaind.github.io` | 3600 (or default) |
+
+**Step-by-step:**
+
+1. Log in to your DNS provider (e.g. Cloudflare, Namecheap, GoDaddy, Route 53)
+2. Navigate to the DNS records for `akaind.ca`
+3. If a record for `sentinel` already exists, **update** it — otherwise create a new one
+4. Set type to `CNAME`, host/name to `sentinel`, value/target to `aaakaind.github.io`
+5. Save and wait for propagation (typically 5–30 minutes, up to 48 hours)
+
+### Verify DNS
+
+```bash
+dig sentinel.akaind.ca +short
+# Expected output: aaakaind.github.io. (and a GitHub Pages IP)
+```
+
+### Enable HTTPS in GitHub Pages
+
+1. Go to **Settings → Pages** in this repository
+2. Under **Custom domain**, confirm it shows `sentinel.akaind.ca`
+3. Check **Enforce HTTPS** (available once DNS propagates and the TLS certificate is issued)
 
 > **Note:** The `CNAME` file in this repository tells GitHub Pages which custom domain to use. Do not remove or rename it.
 
