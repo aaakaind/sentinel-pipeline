@@ -27,6 +27,7 @@ import time
 import logging
 import argparse
 import csv
+import html as html_mod
 from datetime import datetime, timezone, timedelta
 from io import StringIO
 from typing import Optional
@@ -609,7 +610,7 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
     sat_live_badge = "✅ LIVE" if "LIVE" in sat_source else "⚠ SIMULATED"
     A(f'# 🛰 Space Domain — Satellite Coverage {sat_live_badge}')
     A('')
-    A(f'> **Source:** CelesTrak GP/OMM ({sat_source}) — Two-Line Element orbital propagation')
+    A(f'> **Source:** CelesTrak GP/OMM ({sat_source}, JSON orbital elements)')
     A('')
     A('<table fit-page-width="true" header-row="true">')
     A('\t<tr><td>**Asset**</td><td>**Orbit**</td><td>**Altitude**</td><td>**Resolution**</td><td>**Coverage**</td></tr>')
@@ -631,12 +632,12 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
         A('<table fit-page-width="true" header-row="true">')
         A('\t<tr><td>**Time**</td><td>**Headline**</td><td>**Source**</td></tr>')
         for art in gdelt_articles[:12]:
-            time_str = art.get("time", "")
-            title = art.get("title", "Untitled")
+            time_str = html_mod.escape(art.get("time", ""))
+            title = html_mod.escape(art.get("title", "Untitled"))
             # Truncate long titles for table display
             if len(title) > 90:
                 title = title[:87] + "..."
-            domain = art.get("domain", "")
+            domain = html_mod.escape(art.get("domain", ""))
             A(f'\t<tr><td>{time_str}</td><td>{title}</td><td>{domain}</td></tr>')
         A('</table>')
         if len(gdelt_articles) > 12:
@@ -645,9 +646,9 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
             A(f'<summary>**All GDELT Articles** ({len(gdelt_articles)} total)</summary>')
             A('')
             for art in gdelt_articles[12:]:
-                time_str = art.get("time", "")
-                title = art.get("title", "Untitled")
-                domain = art.get("domain", "")
+                time_str = html_mod.escape(art.get("time", ""))
+                title = html_mod.escape(art.get("title", "Untitled"))
+                domain = html_mod.escape(art.get("domain", ""))
                 A(f'- {time_str} · **{title}** · {domain}')
             A('')
             A('</details>')

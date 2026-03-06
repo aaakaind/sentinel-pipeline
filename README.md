@@ -98,7 +98,7 @@ python sentinel_brief.py --json-out data/2026-03-06.json
 | `NOTION_API_KEY` | Yes | Notion internal integration token |
 | `NOTION_PARENT_ID` | Yes | Parent page/database ID for new briefs |
 | `AIS_API_KEY` | No | aisstream.io WebSocket key — enables live maritime AIS tracking |
-| `CELESTRAK_API_KEY` | No | CelesTrak API key — enables live satellite TLE data |
+| `CELESTRAK_API_KEY` | No | CelesTrak API key — enables live satellite orbital data via GP/OMM (OMM/JSON) endpoint |
 
 
 ---
