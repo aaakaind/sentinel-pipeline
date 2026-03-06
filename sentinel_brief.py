@@ -18,7 +18,6 @@ Env vars required:
 Env vars optional (enable live feeds):
     AIS_API_KEY         — from aisstream.io (free registration)
     CELESTRAK_API_KEY   — from celestrak.org
-    ACLED_API_KEY       — from acleddata.com
 """
 
 import os
@@ -51,7 +50,6 @@ GPSJAM_MIN_PROB = 0.3
 
 AIS_API_KEY       = os.getenv("AIS_API_KEY", "")         # aisstream.io WebSocket key
 CELESTRAK_API_KEY = os.getenv("CELESTRAK_API_KEY", "")   # CelesTrak TLE API key
-ACLED_API_KEY     = os.getenv("ACLED_API_KEY", "")       # ACLED access key
 
 CELESTRAK_GP_URL  = "https://celestrak.org/NORAD/elements/gp.php"
 CELESTRAK_TIMEOUT = 15
@@ -618,26 +616,6 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
     for sat in sat_data.get("satellites", []):
         A(f'\t<tr><td>{sat["name"]}</td><td>{sat["orbit"]}</td><td>{sat["altitude"]}</td><td>{sat["resolution"]}</td><td>{sat["coverage"]}</td></tr>')
     A('</table>')
-    A('')
-    A('---')
-    A('')
-
-    # ── INCIDENTS ────────────────────────────
-    A('# 💥 Incident Log — 24H Window')
-    A('')
-    A('> **Source:** ACLED (Armed Conflict Location & Event Data) · Simulated format')
-    A('')
-    for inc in [
-        ("MISSILE IMPACT", "48.12°N 37.45°E", "03:14", True),
-        ("DRONE STRIKE",   "46.88°N 35.22°E", "07:32", True),
-        ("ARTILLERY",      "47.65°N 38.11°E", "11:45", True),
-        ("VESSEL DAMAGED", "45.22°N 33.88°E", "14:20", True),
-        ("AIRSTRIKE",      "49.34°N 36.77°E", "16:55", False),
-        ("RADAR CONTACT",  "47.01°N 39.44°E", "19:10", False),
-    ]:
-        check = "x" if inc[3] else " "
-        conf  = "✓ Confirmed" if inc[3] else "⚠ Unverified"
-        A(f'- [{check}] **{inc[0]}** · {inc[1]} · {inc[2]} UTC · {conf}')
     A('')
     A('---')
     A('')

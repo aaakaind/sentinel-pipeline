@@ -46,7 +46,6 @@ jobs:
           NOTION_PARENT_ID:  ${{ secrets.NOTION_PARENT_ID }}
           AIS_API_KEY:       ${{ secrets.AIS_API_KEY }}
           CELESTRAK_API_KEY: ${{ secrets.CELESTRAK_API_KEY }}
-          ACLED_API_KEY:     ${{ secrets.ACLED_API_KEY }}
         run: |
           DATE_FLAG=""
           DRY_FLAG=""
