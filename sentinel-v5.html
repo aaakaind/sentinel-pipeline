@@ -25,7 +25,7 @@ body{font-family:'DM Sans',sans-serif;color:var(--text);}
 #boot.out{opacity:0;pointer-events:none;}
 .blogo{font-family:'Syne',sans-serif;font-size:40px;font-weight:800;letter-spacing:.1em;background:linear-gradient(135deg,#22d3ee 0%,#3b82f6 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
 .bsub{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.35em;color:var(--muted);text-transform:uppercase;}
-.bbar{width:300px;height:1px;background:rgba(255,255,255,0.05);}
+.bpbar{width:300px;height:1px;background:rgba(255,255,255,0.05);}
 .bfill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--blue));animation:bf 2.8s ease-out forwards;}
 @keyframes bf{0%{width:0}100%{width:100%}}
 .bstat{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:.15em;}
@@ -258,7 +258,7 @@ body{font-family:'DM Sans',sans-serif;color:var(--text);}
 <div id="boot">
   <div class="blogo">SENTINEL</div>
   <div class="bsub">World Intelligence Platform</div>
-  <div class="bbar"><div class="bfill"></div></div>
+  <div class="bpbar"><div class="bfill"></div></div>
   <div class="bstat" id="bstat">Initializing systems...</div>
 </div>
 
@@ -781,7 +781,7 @@ function populateTracks(){
   const tf=S.tf;
   const acs=S.tracks.aircraft.filter(a=>tf==='all'||a.type===tf).slice(0,14);
   const nvs=S.tracks.naval.filter(v=>tf==='all'||tf==='nval'||v.type===tf).slice(0,8);
-  el.innerHTML=[...acs.map(a=>`<div class="tc" onclick="showTarget(${js(a)},'aircraft')"><div class="tci" style="filter:drop-shadow(0 0 5px ${a.color})"">✈</div><div class="tcb"><div class="tcid" style="color:${a.color}">${a.callsign}</div><div class="tcm">${a.label}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><div class="tcv">${Math.round(a.speed||0)}kt</div><div class="${a.real?'tlive':'tsim'}">${a.real?'LIVE':'SIM'}</div></div></div>`),
+  el.innerHTML=[...acs.map(a=>`<div class="tc" onclick="showTarget(${js(a)},'aircraft')"><div class="tci" style="filter:drop-shadow(0 0 5px ${a.color})">✈</div><div class="tcb"><div class="tcid" style="color:${a.color}">${a.callsign}</div><div class="tcm">${a.label}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><div class="tcv">${Math.round(a.speed||0)}kt</div><div class="${a.real?'tlive':'tsim'}">${a.real?'LIVE':'SIM'}</div></div></div>`),
   ...nvs.map(v=>`<div class="tc" onclick="showTarget(${js(v)},'naval')"><div class="tci" style="filter:drop-shadow(0 0 5px ${v.color})">⛴</div><div class="tcb"><div class="tcid" style="color:${v.color}">${v.name.trim()}</div><div class="tcm">${v.label}</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><div class="tcv">${v.speed.toFixed(1)}kt</div><div class="tsim">SIM</div></div></div>`)].join('')||'<div style="padding:14px;font-family:DM Mono,monospace;font-size:9px;color:var(--muted);text-align:center">NO TRACKS</div>';
 }
 function setTF(t,el){S.tf=t;document.querySelectorAll('.tf').forEach(e=>e.classList.remove('on'));el.classList.add('on');populateTracks();}
