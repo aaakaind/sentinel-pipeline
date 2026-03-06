@@ -460,11 +460,11 @@ def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
 def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Optional[str]:
     """Create a new Notion page with the daily brief content."""
     if not NOTION_API_KEY and not dry_run:
-        log.error("NOTION_API_KEY not set. Use --dry-run or set env var.")
-        sys.exit(1)
+        log.warning("NOTION_API_KEY not set — skipping Notion post. Set the repository secret to enable.")
+        return None
     if not NOTION_PARENT_ID and not dry_run:
-        log.error("NOTION_PARENT_ID not set. Use --dry-run or set env var.")
-        sys.exit(1)
+        log.warning("NOTION_PARENT_ID not set — skipping Notion post. Set the repository secret to enable.")
+        return None
 
     d = datetime.strptime(brief_date, "%Y-%m-%d")
     title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
@@ -494,8 +494,12 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     }
 
     log.info(f"Posting to Notion: '{title}'...")
-    r = requests.post("https://api.notion.com/v1/pages",
-                      headers=headers, json=payload, timeout=30)
+    try:
+        r = requests.post("https://api.notion.com/v1/pages",
+                          headers=headers, json=payload, timeout=30)
+    except requests.RequestException as e:
+        log.error(f"Notion connection error: {e}")
+        return None
     if r.status_code == 200:
         page = r.json()
         url  = page.get("url", "")
@@ -570,8 +574,11 @@ def main():
     if url:
         log.info(f"🛰 Daily brief published: {url}")
     elif not args.dry_run:
-        log.error("Brief generation failed.")
-        sys.exit(1)
+        if NOTION_API_KEY and NOTION_PARENT_ID:
+            log.error("Notion API call failed — brief saved locally but not posted.")
+            sys.exit(1)
+        else:
+            log.warning("Notion post skipped (credentials not configured) — brief still saved locally.")
 
 
 if __name__ == "__main__":
