@@ -10,9 +10,11 @@ Every day at midnight UTC, this pipeline:
 
 1. **Hits OpenSky Network** — pulls live ADS-B state vectors (same feed as FlightRadar24)
 2. **Hits GPSJam.org** — pulls real GPS interference data (daily CSV)
-3. **Classifies everything** — military vs ISR vs commercial, emergency squawks, high-intensity jamming
-4. **Generates a structured brief** — Notion-flavored Markdown with tables, callouts, toggles
-5. **Posts a new dated page** to your Notion workspace automatically
+3. **Hits CelesTrak** — pulls live satellite orbital data (OMM/JSON format)
+4. **Hits GDELT Project** — pulls real-time global conflict/security event articles
+5. **Classifies everything** — military vs ISR vs commercial, emergency squawks, high-intensity jamming
+6. **Generates a structured brief** — Notion-flavored Markdown with tables, callouts, toggles
+7. **Posts a new dated page** to your Notion workspace automatically
 
 Falls back to simulation if either API is unavailable (rate-limited, down, etc.)
 
@@ -109,6 +111,7 @@ python sentinel_brief.py --json-out data/2026-03-06.json
 | 📡 GPS Jamming | GPSJam.org | ✅ Live | Daily CSV. Derived from NACp anomalies in ADS-B messages |
 | ⛴ Maritime | AIS (simulated) | ⚠ Simulated | Register free at aisstream.io to activate |
 | 🛰 Satellites | CelesTrak GP/OMM | ✅ Live | Queries resource & military groups. Falls back to simulated if unavailable |
+| 🌐 Global Events | GDELT Project | ✅ Live | Real-time conflict/security articles via DOC API v2. No key required |
 | 💥 Incidents | ACLED (simulated) | ⚠ Simulated | Plug in ACLED API key to activate |
 
 ---
@@ -132,6 +135,7 @@ sentinel_brief.py
         ├── fetch_opensky()    → OpenSky ADS-B API → classify aircraft
         ├── fetch_gpsjam()     → GPSJam.org CSV    → parse jamming zones
         ├── fetch_celestrak()  → CelesTrak GP API  → satellite orbital data
+        ├── fetch_gdelt()      → GDELT DOC API v2  → global conflict events
         │
         ▼
 generate_brief()               → Notion-flavored Markdown

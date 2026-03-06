@@ -3,7 +3,7 @@
 SENTINEL Daily Intelligence Brief — Automated Pipeline
 AKA IND Technologies
 
-Fetches: OpenSky ADS-B, GPSJam.org interference data
+Fetches: OpenSky ADS-B, GPSJam.org interference data, CelesTrak satellite data, GDELT global events
 Posts:   Notion page (new page per day, structured intel brief)
 
 Usage:
@@ -72,6 +72,11 @@ INTEL_SAT_CATALOG = {
     49258: ("PLEIADES NEO 3", "0.3m",     "Middle East"),
     51003: ("PLEIADES NEO 4", "0.3m",     "Global"),
 }
+
+GDELT_DOC_URL     = "https://api.gdeltproject.org/api/v2/doc/doc"
+GDELT_TIMEOUT     = 15
+GDELT_QUERY       = "(conflict OR military OR airstrike OR missile OR drone strike) sourcelang:english"
+GDELT_MAX_RECORDS = 30
 
 MILITARY_PREFIXES  = ["RFR","SHF","UAF","NATO","USAF","USN","RAF","RU","HKP","UKAF"]
 ISR_PREFIXES       = ["RCH","OSB","JAKE","COBRA","IRON","FORGE"]
@@ -292,6 +297,68 @@ def fetch_celestrak() -> dict:
     return _sim_satellites(result)
 
 
+def fetch_gdelt() -> dict:
+    """Fetch recent global conflict/security events from GDELT Project DOC API v2."""
+    log.info("Fetching GDELT Project global events data...")
+    result = {"articles": [], "source": "SIM"}
+
+    params = {
+        "query": GDELT_QUERY,
+        "mode": "ArtList",
+        "maxrecords": GDELT_MAX_RECORDS,
+        "format": "json",
+        "timespan": "24h",
+        "sort": "DateDesc",
+    }
+
+    try:
+        r = requests.get(GDELT_DOC_URL, params=params, timeout=GDELT_TIMEOUT)
+        if not r.ok:
+            log.warning(f"GDELT API HTTP {r.status_code} — using simulated data")
+            return _sim_gdelt(result)
+
+        data = r.json()
+        articles = data.get("articles", [])
+
+        if not articles:
+            log.warning("GDELT returned no articles — using simulated data")
+            return _sim_gdelt(result)
+
+        parsed = []
+        for art in articles[:GDELT_MAX_RECORDS]:
+            seendate = art.get("seendate", "")
+            # GDELT dates: "20260306T123456Z" → "2026-03-06 12:34 UTC"
+            time_str = ""
+            if len(seendate) >= 15:
+                try:
+                    dt = datetime.strptime(seendate[:15], "%Y%m%dT%H%M%S")
+                    time_str = dt.strftime("%H:%M UTC")
+                except ValueError:
+                    time_str = seendate
+            parsed.append({
+                "title": art.get("title", "Untitled").strip(),
+                "url": art.get("url", ""),
+                "domain": art.get("domain", ""),
+                "seendate": seendate,
+                "time": time_str,
+                "language": art.get("language", "English"),
+                "sourcecountry": art.get("sourcecountry", ""),
+                "source": "GDELT-LIVE",
+            })
+
+        result["articles"] = parsed
+        result["source"] = "GDELT-LIVE"
+        log.info(f"GDELT: {len(parsed)} conflict-related articles (24h window)")
+        return result
+
+    except requests.Timeout:
+        log.warning("GDELT timeout — using simulated data")
+        return _sim_gdelt(result)
+    except Exception as e:
+        log.warning(f"GDELT error: {e} — using simulated data")
+        return _sim_gdelt(result)
+
+
 # ─────────────────────────────────────────────
 #  SIMULATION FALLBACKS
 # ─────────────────────────────────────────────
@@ -355,16 +422,35 @@ def _sim_satellites(result: dict) -> dict:
     return result
 
 
+def _sim_gdelt(result: dict) -> dict:
+    """Simulation fallback — representative GDELT articles for template."""
+    articles = [
+        {"title": "Missile strikes reported in eastern Ukraine overnight",       "domain": "reuters.com",     "time": "03:14 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
+        {"title": "IDF confirms drone interception over northern border",        "domain": "timesofisrael.com","time": "07:32 UTC", "sourcecountry": "Israel",         "source": "SIM"},
+        {"title": "NATO increases Baltic air patrols amid rising tensions",      "domain": "bbc.co.uk",       "time": "09:45 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
+        {"title": "Red Sea shipping disrupted by Houthi attacks",                "domain": "aljazeera.com",   "time": "11:20 UTC", "sourcecountry": "Qatar",          "source": "SIM"},
+        {"title": "South China Sea military exercises escalate regional concern", "domain": "scmp.com",        "time": "14:55 UTC", "sourcecountry": "Hong Kong",      "source": "SIM"},
+        {"title": "Wagner-linked forces advance in Sahel region",                "domain": "france24.com",    "time": "16:30 UTC", "sourcecountry": "France",         "source": "SIM"},
+        {"title": "DPRK ballistic missile test prompts emergency UN session",    "domain": "apnews.com",      "time": "19:10 UTC", "sourcecountry": "United States",  "source": "SIM"},
+        {"title": "Russian submarine activity detected in North Atlantic",       "domain": "bbc.co.uk",       "time": "21:40 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
+    ]
+    result["articles"] = articles
+    result["source"] = "SIM"
+    log.info(f"Simulated: {len(articles)} GDELT articles")
+    return result
+
+
 # ─────────────────────────────────────────────
 #  BRIEF GENERATOR — Notion Markdown
 # ─────────────────────────────────────────────
 
-def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, brief_date: str) -> str:
+def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: dict, brief_date: str) -> str:
     """Build Notion-flavored Markdown for the daily brief page."""
     now_str    = datetime.now(timezone.utc).strftime("%B %-d, %Y %H:%M UTC")
     air_source = ac_data["source"]
     jam_source = jam_data["source"]
     sat_source = sat_data.get("source", "SIM")
+    gdelt_source = gdelt_data.get("source", "SIM")
     is_live    = "LIVE" in air_source
 
     total_ac  = len(ac_data["aircraft"])
@@ -389,7 +475,7 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, brief_date: st
     A(f'::: callout {{icon="🛰" color="gray_bg"}}')
     A(f'**SENTINEL World Intelligence Platform** · Daily Brief')
     A(f'**Generated:** {now_str}  ·  **Coverage Date:** {brief_date}')
-    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}  ·  **Sat Feed:** {sat_source}')
+    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}  ·  **Sat Feed:** {sat_source}  ·  **Events:** {gdelt_source}')
     A(f'**Theater:** Eastern Europe / Middle East / Indo-Pacific / North Atlantic / Sub-Saharan Africa / Americas')
     A(':::')
     A('')
@@ -556,6 +642,43 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, brief_date: st
     A('---')
     A('')
 
+    # ── GDELT GLOBAL EVENTS ─────────────────
+    gdelt_live_badge = "✅ LIVE" if "LIVE" in gdelt_source else "⚠ SIMULATED"
+    gdelt_articles = gdelt_data.get("articles", [])
+    A(f'# 🌐 Global Events Monitor — GDELT {gdelt_live_badge}')
+    A('')
+    A(f'> **Source:** [GDELT Project](https://gdeltproject.org) DOC API v2 ({gdelt_source}) · {len(gdelt_articles)} articles · 24h window')
+    A('')
+    if gdelt_articles:
+        A('<table fit-page-width="true" header-row="true">')
+        A('\t<tr><td>**Time**</td><td>**Headline**</td><td>**Source**</td></tr>')
+        for art in gdelt_articles[:12]:
+            time_str = art.get("time", "")
+            title = art.get("title", "Untitled")
+            # Truncate long titles for table display
+            if len(title) > 90:
+                title = title[:87] + "..."
+            domain = art.get("domain", "")
+            A(f'\t<tr><td>{time_str}</td><td>{title}</td><td>{domain}</td></tr>')
+        A('</table>')
+        if len(gdelt_articles) > 12:
+            A('')
+            A('<details>')
+            A(f'<summary>**All GDELT Articles** ({len(gdelt_articles)} total)</summary>')
+            A('')
+            for art in gdelt_articles[12:]:
+                time_str = art.get("time", "")
+                title = art.get("title", "Untitled")
+                domain = art.get("domain", "")
+                A(f'- {time_str} · **{title}** · {domain}')
+            A('')
+            A('</details>')
+    else:
+        A('*No conflict-related articles found in 24h window.*')
+    A('')
+    A('---')
+    A('')
+
     # ── FOOTER CALLOUT ───────────────────────
     A('::: callout {icon="🔒" color="gray_bg"}')
     A('**SENTINEL v5** · AKA IND Technologies · World Intelligence Platform')
@@ -672,18 +795,20 @@ def main():
     jam_data = fetch_gpsjam()
     time.sleep(1)
     sat_data = fetch_celestrak()
+    time.sleep(1)
+    gdelt_data = fetch_gdelt()
 
     # Optional raw data export
     if args.json_out:
         with open(args.json_out, "w") as f:
             json.dump({"aircraft": ac_data, "jamming": jam_data,
-                       "satellites": sat_data,
+                       "satellites": sat_data, "gdelt": gdelt_data,
                        "generated": datetime.now(timezone.utc).isoformat()}, f, indent=2)
         log.info(f"Raw data saved to {args.json_out}")
 
     # Generate brief
     log.info("Generating intelligence brief...")
-    content = generate_brief(ac_data, jam_data, sat_data, brief_date)
+    content = generate_brief(ac_data, jam_data, sat_data, gdelt_data, brief_date)
     log.info(f"Brief generated: {len(content)} chars")
 
     # Post to Notion
