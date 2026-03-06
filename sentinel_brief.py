@@ -53,6 +53,26 @@ AIS_API_KEY       = os.getenv("AIS_API_KEY", "")         # aisstream.io WebSocke
 CELESTRAK_API_KEY = os.getenv("CELESTRAK_API_KEY", "")   # CelesTrak TLE API key
 ACLED_API_KEY     = os.getenv("ACLED_API_KEY", "")       # ACLED access key
 
+CELESTRAK_GP_URL  = "https://celestrak.org/NORAD/elements/gp.php"
+CELESTRAK_TIMEOUT = 15
+CELESTRAK_GROUPS  = ["resource", "military"]  # Earth observation + military sats
+
+# Key intel/observation satellites by NORAD catalog ID
+INTEL_SAT_CATALOG = {
+    40697: ("SENTINEL-2A",    "10m MSI",  "Eastern Europe"),
+    42063: ("SENTINEL-2B",    "10m MSI",  "Global"),
+    40115: ("WORLDVIEW-3",    "**0.3m**", "Global"),
+    35946: ("WORLDVIEW-2",    "0.5m",     "Global"),
+    33331: ("GEOEYE-1",       "0.5m",     "Global"),
+    31598: ("COSMO-SKYMED 1", "SAR",      "Eastern Europe"),
+    32376: ("COSMO-SKYMED 2", "SAR",      "Eastern Europe"),
+    36124: ("HELIOS 2B",      "0.5m",     "Global"),
+    39034: ("PLEIADES 1A",    "0.5m",     "Global"),
+    39634: ("PLEIADES 1B",    "0.5m",     "Global"),
+    49258: ("PLEIADES NEO 3", "0.3m",     "Middle East"),
+    51003: ("PLEIADES NEO 4", "0.3m",     "Global"),
+}
+
 MILITARY_PREFIXES  = ["RFR","SHF","UAF","NATO","USAF","USN","RAF","RU","HKP","UKAF"]
 ISR_PREFIXES       = ["RCH","OSB","JAKE","COBRA","IRON","FORGE"]
 EMERGENCY_SQUAWKS  = {"7500": "HIJACK", "7700": "EMERGENCY", "7600": "COMMS LOSS"}
@@ -198,6 +218,79 @@ def fetch_gpsjam(date_str: Optional[str] = None) -> dict:
     return _sim_gpsjam(result)
 
 
+def _classify_orbit(inclination: float, altitude_km: float) -> str:
+    """Classify orbit type from inclination and altitude."""
+    if altitude_km > 35000:
+        return "GEO"
+    if altitude_km > 2000:
+        return "MEO"
+    if 96 <= inclination <= 100:
+        return "LEO-SSO"
+    return "LEO"
+
+
+def fetch_celestrak() -> dict:
+    """Fetch satellite orbital data from CelesTrak GP API (OMM/JSON format)."""
+    log.info("Fetching CelesTrak satellite orbital data...")
+    result = {"satellites": [], "source": "SIM"}
+
+    all_sats = []
+    for group in CELESTRAK_GROUPS:
+        try:
+            params = {"GROUP": group, "FORMAT": "json"}
+            if CELESTRAK_API_KEY:
+                params["API_KEY"] = CELESTRAK_API_KEY
+            r = requests.get(CELESTRAK_GP_URL, params=params, timeout=CELESTRAK_TIMEOUT)
+            if r.ok:
+                data = r.json()
+                if isinstance(data, list):
+                    all_sats.extend(data)
+                    log.info(f"CelesTrak {group}: {len(data)} objects")
+                continue
+            log.warning(f"CelesTrak {group} HTTP {r.status_code}")
+        except requests.Timeout:
+            log.warning(f"CelesTrak {group} timeout")
+        except Exception as e:
+            log.warning(f"CelesTrak {group} error: {e}")
+
+    if not all_sats:
+        log.warning("CelesTrak unavailable — using simulated satellite data")
+        return _sim_satellites(result)
+
+    # Match against intel satellite catalog by NORAD ID
+    matched = []
+    for sat in all_sats:
+        norad_id = sat.get("NORAD_CAT_ID")
+        if norad_id not in INTEL_SAT_CATALOG:
+            continue
+        display_name, res, coverage = INTEL_SAT_CATALOG[norad_id]
+        incl = sat.get("INCLINATION") or 0
+        peri = sat.get("PERIAPSIS") or 0
+        apo  = sat.get("APOAPSIS") or 0
+        alt  = round((peri + apo) / 2) if peri and apo else 0
+        matched.append({
+            "name": display_name,
+            "norad_id": norad_id,
+            "orbit": _classify_orbit(incl, alt),
+            "altitude": f"{alt} km",
+            "resolution": res,
+            "coverage": coverage,
+            "inclination": round(incl, 1),
+            "period_min": round(sat.get("PERIOD") or 0, 1),
+            "epoch": sat.get("EPOCH", ""),
+            "source": "CelesTrak-LIVE",
+        })
+
+    if matched:
+        result["satellites"] = matched
+        result["source"] = "CelesTrak-LIVE"
+        log.info(f"CelesTrak: {len(matched)} intel satellites tracked from {len(all_sats)} total objects")
+        return result
+
+    log.warning("No intel satellites matched in CelesTrak data — using simulated data")
+    return _sim_satellites(result)
+
+
 # ─────────────────────────────────────────────
 #  SIMULATION FALLBACKS
 # ─────────────────────────────────────────────
@@ -245,15 +338,32 @@ def _sim_gpsjam(result: dict) -> dict:
     return result
 
 
+def _sim_satellites(result: dict) -> dict:
+    """Simulation fallback — hardcoded satellite data matching pre-live format."""
+    sats = [
+        {"name": "SENTINEL-2A",  "orbit": "LEO-SSO", "altitude": "786 km", "resolution": "10m MSI",  "coverage": "Eastern Europe", "source": "SIM"},
+        {"name": "WORLDVIEW-3",  "orbit": "LEO",     "altitude": "617 km", "resolution": "**0.3m**", "coverage": "Global",         "source": "SIM"},
+        {"name": "COSMO-SKYMED", "orbit": "LEO-SSO", "altitude": "619 km", "resolution": "SAR",      "coverage": "Eastern Europe", "source": "SIM"},
+        {"name": "HELIOS-2B",    "orbit": "LEO-SSO", "altitude": "680 km", "resolution": "0.5m",     "coverage": "Global",         "source": "SIM"},
+        {"name": "OFEK-16",      "orbit": "LEO",     "altitude": "420 km", "resolution": "**0.3m**", "coverage": "Middle East",    "source": "SIM"},
+        {"name": "PLEIADES-NEO", "orbit": "LEO-SSO", "altitude": "480 km", "resolution": "0.3m",     "coverage": "Middle East",    "source": "SIM"},
+    ]
+    result["satellites"] = sats
+    result["source"] = "SIM"
+    log.info(f"Simulated: {len(sats)} satellites")
+    return result
+
+
 # ─────────────────────────────────────────────
 #  BRIEF GENERATOR — Notion Markdown
 # ─────────────────────────────────────────────
 
-def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
+def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, brief_date: str) -> str:
     """Build Notion-flavored Markdown for the daily brief page."""
     now_str    = datetime.now(timezone.utc).strftime("%B %-d, %Y %H:%M UTC")
     air_source = ac_data["source"]
     jam_source = jam_data["source"]
+    sat_source = sat_data.get("source", "SIM")
     is_live    = "LIVE" in air_source
 
     total_ac  = len(ac_data["aircraft"])
@@ -278,7 +388,7 @@ def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
     A(f'::: callout {{icon="🛰" color="gray_bg"}}')
     A(f'**SENTINEL World Intelligence Platform** · Daily Brief')
     A(f'**Generated:** {now_str}  ·  **Coverage Date:** {brief_date}')
-    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}')
+    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}  ·  **Sat Feed:** {sat_source}')
     A(f'**Theater:** Eastern Europe / Middle East / Indo-Pacific / North Atlantic / Sub-Saharan Africa / Americas')
     A(':::')
     A('')
@@ -411,21 +521,15 @@ def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
     A('')
 
     # ── SATELLITES ───────────────────────────
-    A('# 🛰 Space Domain — Satellite Coverage')
+    sat_live_badge = "✅ LIVE" if "LIVE" in sat_source else "⚠ SIMULATED"
+    A(f'# 🛰 Space Domain — Satellite Coverage {sat_live_badge}')
     A('')
-    A('> **Source:** CelesTrak TLE (Two-Line Element orbital propagation)')
+    A(f'> **Source:** CelesTrak GP/OMM ({sat_source}) — Two-Line Element orbital propagation')
     A('')
     A('<table fit-page-width="true" header-row="true">')
     A('\t<tr><td>**Asset**</td><td>**Orbit**</td><td>**Altitude**</td><td>**Resolution**</td><td>**Coverage**</td></tr>')
-    for sat in [
-        ("SENTINEL-2A","LEO-SSO","580 km","0.5m","Eastern Europe"),
-        ("WORLDVIEW-3","LEO","617 km","**0.3m**","Global"),
-        ("COSMO-SKYMED","LEO-SSO","619 km","SAR","Eastern Europe"),
-        ("HELIOS-2B","LEO-SSO","680 km","0.5m","Global"),
-        ("OFEK-16","LEO","420 km","**0.3m**","Middle East"),
-        ("PLEIADES-NEO","LEO-SSO","480 km","0.3m","Middle East"),
-    ]:
-        A(f'\t<tr><td>{sat[0]}</td><td>{sat[1]}</td><td>{sat[2]}</td><td>{sat[3]}</td><td>{sat[4]}</td></tr>')
+    for sat in sat_data.get("satellites", []):
+        A(f'\t<tr><td>{sat["name"]}</td><td>{sat["orbit"]}</td><td>{sat["altitude"]}</td><td>{sat["resolution"]}</td><td>{sat["coverage"]}</td></tr>')
     A('</table>')
     A('')
     A('---')
@@ -565,17 +669,20 @@ def main():
     ac_data  = fetch_opensky()
     time.sleep(1)  # be kind to APIs
     jam_data = fetch_gpsjam()
+    time.sleep(1)
+    sat_data = fetch_celestrak()
 
     # Optional raw data export
     if args.json_out:
         with open(args.json_out, "w") as f:
             json.dump({"aircraft": ac_data, "jamming": jam_data,
+                       "satellites": sat_data,
                        "generated": datetime.now(timezone.utc).isoformat()}, f, indent=2)
         log.info(f"Raw data saved to {args.json_out}")
 
     # Generate brief
     log.info("Generating intelligence brief...")
-    content = generate_brief(ac_data, jam_data, brief_date)
+    content = generate_brief(ac_data, jam_data, sat_data, brief_date)
     log.info(f"Brief generated: {len(content)} chars")
 
     # Post to Notion

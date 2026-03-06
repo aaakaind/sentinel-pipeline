@@ -108,7 +108,7 @@ python sentinel_brief.py --json-out data/2026-03-06.json
 | ✈ Aircraft | OpenSky Network | ✅ Live | Same ADS-B feed as FlightRadar24. Anonymous API: ~1 req/10s |
 | 📡 GPS Jamming | GPSJam.org | ✅ Live | Daily CSV. Derived from NACp anomalies in ADS-B messages |
 | ⛴ Maritime | AIS (simulated) | ⚠ Simulated | Register free at aisstream.io to activate |
-| 🛰 Satellites | CelesTrak TLE | ⚠ Simulated | Orbital propagation from TLE elements |
+| 🛰 Satellites | CelesTrak GP/OMM | ✅ Live | Queries resource & military groups. Falls back to simulated if unavailable |
 | 💥 Incidents | ACLED (simulated) | ⚠ Simulated | Plug in ACLED API key to activate |
 
 ---
@@ -129,14 +129,15 @@ GitHub Actions (cron: 00:05 UTC)
         ▼
 sentinel_brief.py
         │
-        ├── fetch_opensky()   → OpenSky ADS-B API → classify aircraft
-        ├── fetch_gpsjam()    → GPSJam.org CSV    → parse jamming zones
+        ├── fetch_opensky()    → OpenSky ADS-B API → classify aircraft
+        ├── fetch_gpsjam()     → GPSJam.org CSV    → parse jamming zones
+        ├── fetch_celestrak()  → CelesTrak GP API  → satellite orbital data
         │
         ▼
-generate_brief()              → Notion-flavored Markdown
+generate_brief()               → Notion-flavored Markdown
         │
         ▼
-post_to_notion()              → Notion API → new dated page
+post_to_notion()               → Notion API → new dated page
 ```
 
 ---
