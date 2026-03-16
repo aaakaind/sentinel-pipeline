@@ -128,14 +128,14 @@ camera.position.z=CDEF;
 
 scene.add(new THREE.AmbientLight(0x203040,.65));
 const sun=new THREE.DirectionalLight(0xfff4e0,1.75);sun.position.set(5,3,4);scene.add(sun);
-scene.add(Object.assign(new THREE.DirectionalLight(0x1a3468,.4),{position:new THREE.Vector3(-5,-3,-4)}));
+(function(){var fl=new THREE.DirectionalLight(0x1a3468,.4);fl.position.set(-5,-3,-4);scene.add(fl);})();
 
 // Stars
-(()=>{const v=[];for(let i=0;i<10000;i++){const t=Math.random()*2*Math.PI,p=Math.acos(2*Math.random()-1),r=65+Math.random()*30;v.push(r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x8899bb,size:.022,transparent:true,opacity:.9})));})();
+(()=>{const v=[];for(let i=0;i<6000;i++){const t=Math.random()*2*Math.PI,p=Math.acos(2*Math.random()-1),r=65+Math.random()*30;v.push(r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x8899bb,size:.022,transparent:true,opacity:.9})));})();
 
 // Earth
 const em=new THREE.MeshPhongMaterial({color:0x1a4478,specular:new THREE.Color(0x1a2d44),shininess:16});
-const earth=new THREE.Mesh(new THREE.SphereGeometry(1,128,128),em);scene.add(earth);
+const earth=new THREE.Mesh(new THREE.SphereGeometry(1,64,64),em);scene.add(earth);
 const TL=new THREE.TextureLoader();
 const tryT=(urls,cb,i=0)=>{if(i>=urls.length)return;TL.load(urls[i],t=>cb(t),undefined,()=>tryT(urls,cb,i+1));};
 tryT(['https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg','https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg'],t=>{em.map=t;em.needsUpdate=true;});
@@ -144,12 +144,12 @@ tryT(['https://unpkg.com/three-globe/example/img/earth-night.jpg'],t=>{scene.add
 let cloudMesh=null;
 tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{cloudMesh=new THREE.Mesh(new THREE.SphereGeometry(1.008,64,64),new THREE.MeshPhongMaterial({map:t,transparent:true,opacity:.08,blending:THREE.AdditiveBlending,depthWrite:false}));scene.add(cloudMesh);});
 
-const atm=new THREE.Mesh(new THREE.SphereGeometry(1.046,64,64),new THREE.MeshPhongMaterial({color:0x2255aa,transparent:true,opacity:.13,side:THREE.FrontSide,depthWrite:false,blending:THREE.AdditiveBlending}));
-const atm2=new THREE.Mesh(new THREE.SphereGeometry(1.09,64,64),new THREE.MeshPhongMaterial({color:0x112244,transparent:true,opacity:.045,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+const atm=new THREE.Mesh(new THREE.SphereGeometry(1.046,48,48),new THREE.MeshPhongMaterial({color:0x2255aa,transparent:true,opacity:.13,side:THREE.FrontSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+const atm2=new THREE.Mesh(new THREE.SphereGeometry(1.09,48,48),new THREE.MeshPhongMaterial({color:0x112244,transparent:true,opacity:.045,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending}));
 scene.add(atm);scene.add(atm2);
 const gm=new THREE.LineBasicMaterial({color:0x1a3344,transparent:true,opacity:.14});
-for(let lt=-60;lt<=60;lt+=30){const pts=[];for(let lg=0;lg<=360;lg+=3)pts.push(ll3(lt,lg-180,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
-for(let lg=-180;lg<180;lg+=30){const pts=[];for(let lt=-85;lt<=85;lt+=3)pts.push(ll3(lt,lg,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+for(let lt=-60;lt<=60;lt+=30){const pts=[];for(let lg=0;lg<=360;lg+=5)pts.push(ll3(lt,lg-180,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+for(let lg=-180;lg<180;lg+=30){const pts=[];for(let lt=-85;lt<=85;lt+=5)pts.push(ll3(lt,lg,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
 
 function posv(sp,lat,lng,r){r=r||1.003;var phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;sp.position.set(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
 function ll3(lat,lng,r=1.003){const phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
@@ -159,7 +159,7 @@ function mkAC(color='#22d3ee'){const c=document.createElement('canvas');c.width=
 function mkSH(color='#10b981'){const c=document.createElement('canvas');c.width=c.height=100;const x=c.getContext('2d');const g=x.createRadialGradient(50,50,2,50,50,36);g.addColorStop(0,color+'88');g.addColorStop(1,color+'00');x.beginPath();x.arc(50,50,36,0,Math.PI*2);x.fillStyle=g;x.fill();x.fillStyle=color+'bb';x.beginPath();x.moveTo(50,24);x.lineTo(68,56);x.lineTo(62,64);x.lineTo(38,64);x.lineTo(32,56);x.closePath();x.fill();x.fillStyle=color;x.fillRect(40,34,20,22);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:true}));sp.scale.set(.017,.017,1);return sp;}
 function mkSAT(){const c=document.createElement('canvas');c.width=c.height=100;const x=c.getContext('2d');const g=x.createRadialGradient(50,50,4,50,50,42);g.addColorStop(0,'rgba(167,139,250,.4)');g.addColorStop(1,'rgba(167,139,250,0)');x.beginPath();x.arc(50,50,42,0,Math.PI*2);x.fillStyle=g;x.fill();x.fillStyle='#a78bfa';x.fillRect(44,26,12,48);x.fillStyle='#3b82f6';x.fillRect(4,34,36,14);x.fillRect(60,34,36,14);x.fillStyle='#22d3ee';x.beginPath();x.arc(50,50,5,0,Math.PI*2);x.fill();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));sp.scale.set(.022,.022,1);return sp;}
 function mkJAM(radius,intensity){const c=document.createElement('canvas');c.width=c.height=140;const x=c.getContext('2d');const g=x.createRadialGradient(70,70,0,70,70,60);g.addColorStop(0,`rgba(245,158,11,${intensity*.6})`);g.addColorStop(.45,`rgba(249,115,22,${intensity*.28})`);g.addColorStop(.8,`rgba(239,68,68,${intensity*.1})`);g.addColorStop(1,'rgba(239,68,68,0)');x.beginPath();x.arc(70,70,60,0,Math.PI*2);x.fillStyle=g;x.fill();x.beginPath();x.arc(70,70,54,0,Math.PI*2);x.strokeStyle=`rgba(245,158,11,${intensity*.35})`;x.lineWidth=2;x.setLineDash([4,6]);x.stroke();const sz=.025+(radius/100)*.065;const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false,blending:THREE.AdditiveBlending}));sp.scale.set(sz,sz,1);return sp;}
-function mkORB(inc,lng,alt){const pts=[],steps=160,incR=inc*Math.PI/180,lonR=lng*Math.PI/180,r=1.026+(alt/6371)*.075;for(let i=0;i<=steps;i++){const a=(i/steps)*2*Math.PI,x0=r*Math.cos(a),y0=r*Math.sin(a)*Math.cos(incR),z0=r*Math.sin(a)*Math.sin(incR),x1=x0*Math.cos(lonR)-z0*Math.sin(lonR),z1=x0*Math.sin(lonR)+z0*Math.cos(lonR);pts.push(new THREE.Vector3(x1,y0,z1));}return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x7c3aed,transparent:true,opacity:.2,blending:THREE.AdditiveBlending}));}
+function mkORB(inc,lng,alt){const pts=[],steps=80,incR=inc*Math.PI/180,lonR=lng*Math.PI/180,r=1.026+(alt/6371)*.075;for(let i=0;i<=steps;i++){const a=(i/steps)*2*Math.PI,x0=r*Math.cos(a),y0=r*Math.sin(a)*Math.cos(incR),z0=r*Math.sin(a)*Math.sin(incR),x1=x0*Math.cos(lonR)-z0*Math.sin(lonR),z1=x0*Math.sin(lonR)+z0*Math.cos(lonR);pts.push(new THREE.Vector3(x1,y0,z1));}return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x7c3aed,transparent:true,opacity:.2,blending:THREE.AdditiveBlending}));}
 function mkINC(color){const c=document.createElement('canvas');c.width=c.height=80;const x=c.getContext('2d');x.strokeStyle=color;x.lineWidth=3.5;x.lineCap='round';x.beginPath();x.moveTo(22,22);x.lineTo(58,58);x.stroke();x.beginPath();x.moveTo(58,22);x.lineTo(22,58);x.stroke();const g=x.createRadialGradient(40,40,3,40,40,30);g.addColorStop(0,color+'99');g.addColorStop(1,color+'00');x.beginPath();x.arc(40,40,30,0,Math.PI*2);x.fillStyle=g;x.fill();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,blending:THREE.AdditiveBlending}));sp.scale.set(.019,.019,1);return sp;}
 
 // Data
