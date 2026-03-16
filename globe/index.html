@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SENTINEL — Live Globe</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;overflow:hidden;background:#010509;font-family:'DM Mono',monospace;user-select:none;}
+#c{display:block;width:100vw;height:100vh;cursor:grab;}
+#c.dragging{cursor:grabbing;}
+#hud{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:14px 22px;background:linear-gradient(180deg,rgba(1,5,9,.96),rgba(1,5,9,0));pointer-events:none;}
+.brand-logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:.15em;background:linear-gradient(135deg,#22d3ee,#3b82f6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.brand-sub{font-size:7px;letter-spacing:.32em;color:rgba(34,211,238,.3);margin-top:1px;}
+.hud-r{display:flex;align-items:center;gap:10px;}
+.chip{font-size:8px;letter-spacing:.14em;color:rgba(34,211,238,.45);background:rgba(34,211,238,.04);border:1px solid rgba(34,211,238,.1);border-radius:3px;padding:4px 9px;white-space:nowrap;}
+.chip.live{color:#10b981;border-color:rgba(16,185,129,.25);}
+.chip.live::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:#10b981;margin-right:5px;animation:lp 2s infinite;}
+@keyframes lp{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.7);}50%{box-shadow:0 0 0 5px rgba(16,185,129,0);}}
+#uclock{font-size:13px;color:#22d3ee;font-weight:500;letter-spacing:.06em;}
+#zctrl{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:50;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:all;}
+.zbtn{width:32px;height:32px;background:rgba(1,8,20,.85);border:1px solid rgba(34,211,238,.15);color:rgba(34,211,238,.6);font-size:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:4px;transition:all .15s;backdrop-filter:blur(8px);line-height:1;font-weight:300;}
+.zbtn:hover{background:rgba(34,211,238,.1);border-color:rgba(34,211,238,.4);color:#22d3ee;box-shadow:0 0 12px rgba(34,211,238,.2);}
+.zbtn:active{transform:scale(.92);}
+#zslider{width:2px;height:80px;background:rgba(34,211,238,.08);border-radius:1px;position:relative;cursor:pointer;}
+#ztrack{position:absolute;bottom:0;left:0;right:0;background:rgba(34,211,238,.3);border-radius:1px;}
+#zhandle{position:absolute;left:50%;transform:translateX(-50%);width:10px;height:10px;background:#22d3ee;border-radius:50%;box-shadow:0 0 8px rgba(34,211,238,.6);cursor:grab;bottom:0px;}
+#stats{position:fixed;bottom:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:center;gap:1px;padding-bottom:16px;pointer-events:none;}
+.stat{display:flex;flex-direction:column;align-items:center;padding:9px 18px;background:rgba(1,5,9,.78);border:1px solid rgba(255,255,255,.05);backdrop-filter:blur(14px);}
+.stat:first-child{border-radius:6px 0 0 6px;}.stat:last-child{border-radius:0 6px 6px 0;}
+.sv{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;line-height:1;}
+.sl{font-size:7px;letter-spacing:.22em;color:rgba(255,255,255,.28);margin-top:2px;text-transform:uppercase;}
+#legend{position:fixed;left:20px;bottom:90px;z-index:50;display:flex;flex-direction:column;gap:6px;pointer-events:none;}
+.leg{display:flex;align-items:center;gap:7px;font-size:8px;letter-spacing:.12em;color:rgba(255,255,255,.35);}
+.ld{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+#popup{position:fixed;z-index:300;pointer-events:none;transition:opacity .15s;}
+#popup.hidden{opacity:0;}
+.pc{background:rgba(1,8,20,.94);border:1px solid rgba(34,211,238,.28);border-radius:8px;padding:14px 16px;min-width:230px;max-width:280px;backdrop-filter:blur(24px);box-shadow:0 0 40px rgba(34,211,238,.08),0 24px 64px rgba(0,0,0,.7);position:relative;}
+.pt{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:2px;}
+.ps{font-size:8px;letter-spacing:.18em;color:rgba(255,255,255,.3);margin-bottom:10px;text-transform:uppercase;}
+.pr{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:9px;gap:10px;}
+.pr:last-child{border:none;padding-bottom:0;}
+.pk{color:rgba(255,255,255,.28);letter-spacing:.12em;flex-shrink:0;}
+.pv{font-weight:500;text-align:right;}
+.pc-close{position:absolute;top:10px;right:12px;color:rgba(255,255,255,.2);cursor:pointer;font-size:12px;pointer-events:all;}
+.pc-close:hover{color:#22d3ee;}
+#tip{position:fixed;z-index:200;background:rgba(1,8,20,.9);border:1px solid rgba(34,211,238,.2);border-radius:3px;padding:4px 9px;font-size:8px;letter-spacing:.1em;color:#22d3ee;pointer-events:none;white-space:nowrap;backdrop-filter:blur(8px);}
+#tip.hidden{display:none;}
+#intro{position:fixed;inset:0;z-index:9999;background:#010509;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity 1.2s ease;}
+#intro.out{opacity:0;pointer-events:none;}
+.il{font-family:'Syne',sans-serif;font-size:52px;font-weight:800;letter-spacing:.08em;background:linear-gradient(135deg,#22d3ee,#3b82f6,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.is{font-size:8px;letter-spacing:.4em;color:rgba(34,211,238,.28);}
+.ibw{width:280px;height:1px;background:rgba(255,255,255,.04);overflow:hidden;}
+.ibf{height:100%;background:linear-gradient(90deg,#22d3ee,#3b82f6,#a78bfa);animation:ibf 2.8s ease-out forwards;}
+@keyframes ibf{from{width:0}to{width:100%}}
+.ix{font-size:8px;color:rgba(34,211,238,.22);letter-spacing:.2em;}
+#hint{position:fixed;bottom:92px;left:50%;transform:translateX(-50%);z-index:50;font-size:7px;letter-spacing:.22em;color:rgba(255,255,255,.16);pointer-events:none;animation:hf 4s ease 3.5s forwards;}
+@keyframes hf{from{opacity:1}to{opacity:0}}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(34,211,238,.007) 2px,rgba(34,211,238,.007) 3px);pointer-events:none;z-index:100;}
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <div class="il">SENTINEL</div>
+  <div class="is">LIVE GLOBAL INTELLIGENCE</div>
+  <div class="ibw"><div class="ibf"></div></div>
+  <div class="ix" id="istat">Initializing...</div>
+</div>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div><div class="brand-logo">SENTINEL</div><div class="brand-sub">Live Globe · World Intel v5</div></div>
+  <div class="hud-r">
+    <div class="chip live">LIVE TRACKING</div>
+    <div class="chip" id="hobj">— OBJECTS</div>
+    <div class="chip" id="uclock">00:00:00 UTC</div>
+  </div>
+</div>
+
+<div id="zctrl">
+  <button class="zbtn" id="zin">+</button>
+  <div id="zslider"><div id="ztrack"></div><div id="zhandle"></div></div>
+  <button class="zbtn" id="zout">−</button>
+</div>
+
+<div id="stats">
+  <div class="stat"><div class="sv" id="sc-ac" style="color:#22d3ee">—</div><div class="sl">Aircraft</div></div>
+  <div class="stat"><div class="sv" id="sc-nv" style="color:#10b981">—</div><div class="sl">Vessels</div></div>
+  <div class="stat"><div class="sv" id="sc-sat" style="color:#a78bfa">—</div><div class="sl">Satellites</div></div>
+  <div class="stat"><div class="sv" id="sc-jm" style="color:#f59e0b">—</div><div class="sl">Jam Zones</div></div>
+  <div class="stat"><div class="sv" id="sc-inc" style="color:#ef4444">—</div><div class="sl">Incidents</div></div>
+</div>
+
+<div id="legend">
+  <div class="leg"><div class="ld" style="background:#22d3ee;box-shadow:0 0 5px #22d3ee99"></div>AIRCRAFT</div>
+  <div class="leg"><div class="ld" style="background:#10b981;box-shadow:0 0 5px #10b98199"></div>VESSELS</div>
+  <div class="leg"><div class="ld" style="background:#a78bfa;box-shadow:0 0 5px #a78bfa99"></div>SATELLITES</div>
+  <div class="leg"><div class="ld" style="background:#f59e0b;box-shadow:0 0 5px #f59e0b99"></div>JAM ZONES</div>
+  <div class="leg"><div class="ld" style="background:#ef4444;box-shadow:0 0 5px #ef444499"></div>INCIDENTS</div>
+</div>
+
+<div id="popup" class="hidden">
+  <div class="pc">
+    <span class="pc-close" onclick="closePopup()">✕</span>
+    <div class="pt" id="pp-title">—</div>
+    <div class="ps" id="pp-sub">—</div>
+    <div id="pp-rows"></div>
+  </div>
+</div>
+
+<div id="tip" class="hidden"></div>
+<div id="hint">DRAG TO ROTATE · SCROLL OR PINCH TO ZOOM · CLICK TO INSPECT</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const CMIN=1.28,CMAX=6.5,CDEF=2.7;
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.setClearColor(0x010509,1);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.1,400);
+camera.position.z=CDEF;
+
+scene.add(new THREE.AmbientLight(0x203040,.65));
+const sun=new THREE.DirectionalLight(0xfff4e0,1.75);sun.position.set(5,3,4);scene.add(sun);
+scene.add(Object.assign(new THREE.DirectionalLight(0x1a3468,.4),{position:new THREE.Vector3(-5,-3,-4)}));
+
+// Stars
+(()=>{const v=[];for(let i=0;i<10000;i++){const t=Math.random()*2*Math.PI,p=Math.acos(2*Math.random()-1),r=65+Math.random()*30;v.push(r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(v,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x8899bb,size:.022,transparent:true,opacity:.9})));})();
+
+// Earth
+const em=new THREE.MeshPhongMaterial({color:0x1a4478,specular:new THREE.Color(0x1a2d44),shininess:16});
+const earth=new THREE.Mesh(new THREE.SphereGeometry(1,128,128),em);scene.add(earth);
+const TL=new THREE.TextureLoader();
+const tryT=(urls,cb,i=0)=>{if(i>=urls.length)return;TL.load(urls[i],t=>cb(t),undefined,()=>tryT(urls,cb,i+1));};
+tryT(['https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg','https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg'],t=>{em.map=t;em.needsUpdate=true;});
+tryT(['https://unpkg.com/three-globe/example/img/earth-topology.png'],t=>{em.bumpMap=t;em.bumpScale=.013;em.needsUpdate=true;});
+tryT(['https://unpkg.com/three-globe/example/img/earth-night.jpg'],t=>{scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.001,64,64),new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:.27,blending:THREE.AdditiveBlending})));});
+let cloudMesh=null;
+tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{cloudMesh=new THREE.Mesh(new THREE.SphereGeometry(1.008,64,64),new THREE.MeshPhongMaterial({map:t,transparent:true,opacity:.08,blending:THREE.AdditiveBlending,depthWrite:false}));scene.add(cloudMesh);});
+
+const atm=new THREE.Mesh(new THREE.SphereGeometry(1.046,64,64),new THREE.MeshPhongMaterial({color:0x2255aa,transparent:true,opacity:.13,side:THREE.FrontSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+const atm2=new THREE.Mesh(new THREE.SphereGeometry(1.09,64,64),new THREE.MeshPhongMaterial({color:0x112244,transparent:true,opacity:.045,side:THREE.BackSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+scene.add(atm);scene.add(atm2);
+const gm=new THREE.LineBasicMaterial({color:0x1a3344,transparent:true,opacity:.14});
+for(let lt=-60;lt<=60;lt+=30){const pts=[];for(let lg=0;lg<=360;lg+=3)pts.push(ll3(lt,lg-180,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+for(let lg=-180;lg<180;lg+=30){const pts=[];for(let lt=-85;lt<=85;lt+=3)pts.push(ll3(lt,lg,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+
+function ll3(lat,lng,r=1.003){const phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
+
+// Sprite factories
+function mkAC(color='#22d3ee'){const c=document.createElement('canvas');c.width=c.height=100;const x=c.getContext('2d');const g=x.createRadialGradient(50,50,2,50,50,38);g.addColorStop(0,color+'aa');g.addColorStop(1,color+'00');x.beginPath();x.arc(50,50,38,0,Math.PI*2);x.fillStyle=g;x.fill();x.fillStyle=color;x.beginPath();x.ellipse(50,50,5,20,0,0,Math.PI*2);x.fill();x.beginPath();x.moveTo(50,46);x.lineTo(12,58);x.lineTo(50,54);x.lineTo(88,58);x.closePath();x.fillStyle=color+'cc';x.fill();x.beginPath();x.moveTo(50,66);x.lineTo(30,78);x.lineTo(50,72);x.lineTo(70,78);x.closePath();x.fillStyle=color+'99';x.fill();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:true}));sp.scale.set(.018,.018,1);return sp;}
+function mkSH(color='#10b981'){const c=document.createElement('canvas');c.width=c.height=100;const x=c.getContext('2d');const g=x.createRadialGradient(50,50,2,50,50,36);g.addColorStop(0,color+'88');g.addColorStop(1,color+'00');x.beginPath();x.arc(50,50,36,0,Math.PI*2);x.fillStyle=g;x.fill();x.fillStyle=color+'bb';x.beginPath();x.moveTo(50,24);x.lineTo(68,56);x.lineTo(62,64);x.lineTo(38,64);x.lineTo(32,56);x.closePath();x.fill();x.fillStyle=color;x.fillRect(40,34,20,22);const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:true}));sp.scale.set(.017,.017,1);return sp;}
+function mkSAT(){const c=document.createElement('canvas');c.width=c.height=100;const x=c.getContext('2d');const g=x.createRadialGradient(50,50,4,50,50,42);g.addColorStop(0,'rgba(167,139,250,.4)');g.addColorStop(1,'rgba(167,139,250,0)');x.beginPath();x.arc(50,50,42,0,Math.PI*2);x.fillStyle=g;x.fill();x.fillStyle='#a78bfa';x.fillRect(44,26,12,48);x.fillStyle='#3b82f6';x.fillRect(4,34,36,14);x.fillRect(60,34,36,14);x.fillStyle='#22d3ee';x.beginPath();x.arc(50,50,5,0,Math.PI*2);x.fill();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true}));sp.scale.set(.022,.022,1);return sp;}
+function mkJAM(radius,intensity){const c=document.createElement('canvas');c.width=c.height=140;const x=c.getContext('2d');const g=x.createRadialGradient(70,70,0,70,70,60);g.addColorStop(0,`rgba(245,158,11,${intensity*.6})`);g.addColorStop(.45,`rgba(249,115,22,${intensity*.28})`);g.addColorStop(.8,`rgba(239,68,68,${intensity*.1})`);g.addColorStop(1,'rgba(239,68,68,0)');x.beginPath();x.arc(70,70,60,0,Math.PI*2);x.fillStyle=g;x.fill();x.beginPath();x.arc(70,70,54,0,Math.PI*2);x.strokeStyle=`rgba(245,158,11,${intensity*.35})`;x.lineWidth=2;x.setLineDash([4,6]);x.stroke();const sz=.025+(radius/100)*.065;const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false,blending:THREE.AdditiveBlending}));sp.scale.set(sz,sz,1);return sp;}
+function mkORB(inc,lng,alt){const pts=[],steps=160,incR=inc*Math.PI/180,lonR=lng*Math.PI/180,r=1.026+(alt/6371)*.075;for(let i=0;i<=steps;i++){const a=(i/steps)*2*Math.PI,x0=r*Math.cos(a),y0=r*Math.sin(a)*Math.cos(incR),z0=r*Math.sin(a)*Math.sin(incR),x1=x0*Math.cos(lonR)-z0*Math.sin(lonR),z1=x0*Math.sin(lonR)+z0*Math.cos(lonR);pts.push(new THREE.Vector3(x1,y0,z1));}return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x7c3aed,transparent:true,opacity:.2,blending:THREE.AdditiveBlending}));}
+function mkINC(color){const c=document.createElement('canvas');c.width=c.height=80;const x=c.getContext('2d');x.strokeStyle=color;x.lineWidth=3.5;x.lineCap='round';x.beginPath();x.moveTo(22,22);x.lineTo(58,58);x.stroke();x.beginPath();x.moveTo(58,22);x.lineTo(22,58);x.stroke();const g=x.createRadialGradient(40,40,3,40,40,30);g.addColorStop(0,color+'99');g.addColorStop(1,color+'00');x.beginPath();x.arc(40,40,30,0,Math.PI*2);x.fillStyle=g;x.fill();const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,blending:THREE.AdditiveBlending}));sp.scale.set(.019,.019,1);return sp;}
+
+// Data
+const rnd=(a,b)=>a+Math.random()*(b-a),ri=(a,b)=>Math.floor(rnd(a,b)),rc=a=>a[ri(0,a.length)];
+let _id=0;const mkid=p=>`${p}-${++_id}`;
+const AT=[{label:'RQ-4B GLOBAL HAWK',type:'ISR',color:'#22d3ee'},{label:'RC-135V RIVET JOINT',type:'MILITARY',color:'#f59e0b'},{label:'P-8A POSEIDON',type:'MILITARY',color:'#f59e0b'},{label:'E-3 AWACS',type:'MILITARY',color:'#f59e0b'},{label:'C-17 GLOBEMASTER',type:'TRANSPORT',color:'#94a3b8'},{label:'Su-27 FLANKER',type:'MILITARY',color:'#f97316'},{label:'F-16 FALCON',type:'MILITARY',color:'#22d3ee'},{label:'MC-12W LIBERTY',type:'ISR',color:'#a78bfa'},{label:'B737-800',type:'COMMERCIAL',color:'#64748b'},{label:'A380',type:'COMMERCIAL',color:'#64748b'},{label:'B777F',type:'CARGO',color:'#64748b'}];
+const ST=[{label:'DESTROYER',shtype:'WARSHIP',color:'#ef4444'},{label:'FRIGATE',shtype:'WARSHIP',color:'#ef4444'},{label:'LANDING SHIP',shtype:'WARSHIP',color:'#f97316'},{label:'BULK CARRIER',shtype:'CARGO',color:'#10b981'},{label:'OIL TANKER',shtype:'TANKER',color:'#f59e0b'},{label:'CONTAINER',shtype:'CARGO',color:'#10b981'}];
+const SN=['SENTINEL-2A','WORLDVIEW-3','MAXAR-1','PLEIADES-NEO','KOMPSAT-3','COSMO-SKYMED','SAR-LUPE-3','HELIOS-2B','OFEK-16','EROS-C3','KH-13','GPS-IIF-3'];
+const IT=[{label:'MISSILE IMPACT',color:'#ef4444'},{label:'DRONE STRIKE',color:'#f97316'},{label:'ARTILLERY',color:'#f59e0b'},{label:'AIRSTRIKE',color:'#ef4444'}];
+const JP=[[47.02,35.18,120,.85],[46.15,38.22,95,.78],[54.7,20.5,110,.74],[35.5,33,88,.71],[44,42,70,.55],[42,35,60,.48],[49,27,80,.62],[51,30,72,.58]];
+const OB=[[47,35],[46,38],[35,33],[55,20],[14,43],[12,45],[22,115],[13,109],[35,-10],[55,-25],[3,-15],[30,-75]];
+const PLANES=Array.from({length:42},()=>{const t=rc(AT),pfx=['UAF','NATO','USAF','USN','RAF','RUF','UKAF'][ri(0,7)],h=rnd(0,360);return{id:mkid('AC'),callsign:`${pfx}${ri(100,999)}`,heading:h,alt:rnd(5000,42000),spd:rnd(300,950),lat:rnd(-60,70),lng:rnd(-170,170),velLat:Math.cos(h*Math.PI/180)*.005*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.005*rnd(.5,1.5),...t};});
+const SHIPS=Array.from({length:26},()=>{const t=rc(ST),b=rc(OB),h=rnd(0,360),nm=['ATLANTIC ','PACIFIC ','BLACK SEA ','ARCTIC ','MARINE '][ri(0,5)]+ri(1,99);return{id:mkid('VS'),name:nm,mmsi:String(ri(200000000,800000000)),heading:h,spd:rnd(.5,22),draught:rnd(2,18),lat:b[0]+rnd(-8,8),lng:b[1]+rnd(-10,10),velLat:Math.cos(h*Math.PI/180)*.0012*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.0012*rnd(.5,1.5),...t};});
+const SATS=SN.map(name=>{const inc=rnd(55,98),alt=rnd(420,800),av=alt<600?.013:.009;return{id:mkid('SAT'),name,lat:rnd(-65,65),lng:rnd(-180,180),alt,inc,period:Math.round(90+alt/10),resolution:['0.3m','0.5m','1m','SAR'][ri(0,4)],region:['Eastern Europe','Middle East','Global','Indo-Pacific'][ri(0,4)],velLat:Math.cos(inc*Math.PI/180)*av*rnd(.7,1.3),velLng:Math.sin(inc*Math.PI/180)*av*rnd(.7,1.3)};});
+const JAM=JP.map(([lat,lng,radius,intensity],i)=>({id:`JZ-${i}`,lat,lng,radius,intensity,pct:Math.round(intensity*100)}));
+const INC=Array.from({length:10},()=>{const t=rc(IT);return{id:mkid('INC'),lat:rnd(30,58),lng:rnd(18,52),...t,time:new Date(Date.now()-ri(0,86400)*1000).toUTCString()};});
+
+// Groups
+const GRP={};
+for(const k of['planes','ships','satellites','orbits','jamming','incidents']){GRP[k]=new THREE.Group();scene.add(GRP[k]);}
+const SPRITES=[];
+
+function build(){
+  for(const k of Object.keys(GRP)){while(GRP[k].children.length)GRP[k].remove(GRP[k].children[0]);}
+  SPRITES.length=0;
+  PLANES.forEach((ac,i)=>{const sp=mkAC(ac.color);sp.position.copy(ll3(ac.lat,ac.lng));sp.userData={obj:ac,type:'aircraft',idx:i};GRP.planes.add(sp);SPRITES.push(sp);});
+  SHIPS.forEach((sh,i)=>{const sp=mkSH(sh.color);sp.position.copy(ll3(sh.lat,sh.lng));sp.userData={obj:sh,type:'vessel',idx:i};GRP.ships.add(sp);SPRITES.push(sp);});
+  SATS.forEach((sat,i)=>{const sp=mkSAT();sp.position.copy(ll3(sat.lat,sat.lng,1.015));sp.userData={obj:sat,type:'satellite',idx:i};GRP.satellites.add(sp);SPRITES.push(sp);GRP.orbits.add(mkORB(sat.inc,sat.lng,sat.alt));});
+  JAM.forEach(jz=>{const sp=mkJAM(jz.radius,jz.intensity);sp.position.copy(ll3(jz.lat,jz.lng,1.001));GRP.jamming.add(sp);});
+  INC.forEach((inc,i)=>{const sp=mkINC(inc.color);sp.position.copy(ll3(inc.lat,inc.lng));sp.userData={obj:inc,type:'incident',idx:i};GRP.incidents.add(sp);SPRITES.push(sp);});
+  document.getElementById('sc-ac').textContent=PLANES.length;
+  document.getElementById('sc-nv').textContent=SHIPS.length;
+  document.getElementById('sc-sat').textContent=SATS.length;
+  document.getElementById('sc-jm').textContent=JAM.length;
+  document.getElementById('sc-inc').textContent=INC.length;
+  document.getElementById('hobj').textContent=`${PLANES.length+SHIPS.length+SATS.length} TRACKED`;
+}
+build();
+
+// Rotation + zoom state
+const rot={x:.22,y:0};const vel={x:0,y:.00055};const FRIC=.9925;
+let targetZ=CDEF,curZ=CDEF;
+
+function applyRot(){earth.rotation.set(rot.x,rot.y,0);atm.rotation.copy(earth.rotation);atm2.rotation.copy(earth.rotation);for(const g of Object.values(GRP))g.rotation.copy(earth.rotation);}
+function setZoom(z){targetZ=Math.max(CMIN,Math.min(CMAX,z));updateZUI();}
+function updateZUI(){const pct=1-(targetZ-CMIN)/(CMAX-CMIN);const hp=pct*80;document.getElementById('ztrack').style.height=hp+'px';document.getElementById('zhandle').style.bottom=(hp-5)+'px';}
+updateZUI();
+
+document.getElementById('zin').onclick=()=>setZoom(targetZ-.35);
+document.getElementById('zout').onclick=()=>setZoom(targetZ+.35);
+const zsl=document.getElementById('zslider'),zh=document.getElementById('zhandle');
+let zDrag=false;
+zh.addEventListener('mousedown',e=>{zDrag=true;e.preventDefault();e.stopPropagation();},{passive:false});
+zh.addEventListener('touchstart',e=>{zDrag=true;e.preventDefault();e.stopPropagation();},{passive:false});
+zsl.addEventListener('click',e=>{const r=zsl.getBoundingClientRect();const pct=Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height));setZoom(CMIN+(1-pct)*(CMAX-CMIN));});
+
+const drag2={active:false,x:0,y:0};
+canvas.addEventListener('mousedown',e=>{drag2.active=true;drag2.x=e.clientX;drag2.y=e.clientY;vel.x=0;vel.y=0;canvas.classList.add('dragging');});
+window.addEventListener('mouseup',()=>{drag2.active=false;zDrag=false;canvas.classList.remove('dragging');});
+window.addEventListener('mousemove',e=>{
+  if(zDrag){const r=zsl.getBoundingClientRect();const pct=Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height));setZoom(CMIN+(1-pct)*(CMAX-CMIN));return;}
+  if(!drag2.active){hover(e);return;}
+  const dx=e.clientX-drag2.x,dy=e.clientY-drag2.y;
+  rot.y+=dx*.004;rot.x+=dy*.003;rot.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,rot.x));
+  vel.y=dx*.00013;vel.x=dy*.00008;drag2.x=e.clientX;drag2.y=e.clientY;
+});
+canvas.addEventListener('wheel',e=>{e.preventDefault();setZoom(targetZ+(e.deltaY>0?.22:-.22));},{passive:false});
+
+let lpd=null;
+canvas.addEventListener('touchstart',e=>{e.preventDefault();if(e.touches.length===1){drag2.active=true;drag2.x=e.touches[0].clientX;drag2.y=e.touches[0].clientY;vel.x=0;vel.y=0;}else if(e.touches.length===2){lpd=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}},{passive:false});
+canvas.addEventListener('touchmove',e=>{e.preventDefault();if(e.touches.length===1&&drag2.active){const dx=e.touches[0].clientX-drag2.x,dy=e.touches[0].clientY-drag2.y;rot.y+=dx*.004;rot.x+=dy*.003;rot.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,rot.x));vel.y=dx*.00013;drag2.x=e.touches[0].clientX;drag2.y=e.touches[0].clientY;}else if(e.touches.length===2&&lpd!==null){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);setZoom(targetZ-(d-lpd)*.012);lpd=d;}},{passive:false});
+canvas.addEventListener('touchend',e=>{drag2.active=false;lpd=null;e.preventDefault();},{passive:false});
+
+// Raycasting
+const ray=new THREE.Raycaster();ray.params.Sprite={threshold:.022};const mv=new THREE.Vector2();
+const tip=document.getElementById('tip'),pop=document.getElementById('popup');
+function ndcXY(cx,cy){mv.x=(cx/innerWidth)*2-1;mv.y=-(cy/innerHeight)*2+1;}
+function hover(e){ndcXY(e.clientX,e.clientY);ray.setFromCamera(mv,camera);const hits=ray.intersectObjects(SPRITES);if(hits.length){const ud=hits[0].object.userData;canvas.style.cursor='pointer';tip.classList.remove('hidden');tip.style.left=(e.clientX+14)+'px';tip.style.top=(e.clientY-12)+'px';tip.textContent=ud.type==='aircraft'?`${ud.obj.callsign} · ${ud.obj.label}`:ud.type==='vessel'?`${ud.obj.name.trim()} · ${ud.obj.shtype||ud.obj.label}`:ud.type==='satellite'?ud.obj.name:ud.obj.label;}else{canvas.style.cursor='grab';tip.classList.add('hidden');}}
+canvas.addEventListener('click',e=>{ndcXY(e.clientX,e.clientY);ray.setFromCamera(mv,camera);const hits=ray.intersectObjects(SPRITES);if(!hits.length){closePopup();return;}const ud=hits[0].object.userData;showPop(ud.obj,ud.type,e.clientX,e.clientY);});
+
+function row(k,v,c='#dde6f0'){return`<div class="pr"><span class="pk">${k}</span><span class="pv" style="color:${c}">${v}</span></div>`;}
+function showPop(obj,type,mx,my){
+  const t=document.getElementById('pp-title'),s=document.getElementById('pp-sub'),r=document.getElementById('pp-rows');
+  if(type==='aircraft'){t.style.color=obj.color;t.textContent=obj.callsign;s.textContent=`${obj.label} · ${obj.type}`;r.innerHTML=row('ALTITUDE',Math.round(obj.alt).toLocaleString()+' ft','#22d3ee')+row('SPEED',Math.round(obj.spd)+' kts')+row('HEADING',Math.round(obj.heading)+'°')+row('POSITION',`${obj.lat.toFixed(3)}°N ${obj.lng.toFixed(3)}°E`,'#4a6280');}
+  else if(type==='vessel'){t.style.color=obj.color;t.textContent=obj.name.trim();s.textContent=`${obj.shtype||obj.label} · MMSI ${obj.mmsi}`;r.innerHTML=row('SPEED',obj.spd.toFixed(1)+' kts')+row('HEADING',Math.round(obj.heading)+'°')+row('DRAUGHT',obj.draught.toFixed(1)+' m')+row('POSITION',`${obj.lat.toFixed(3)}°N ${obj.lng.toFixed(3)}°E`,'#4a6280');}
+  else if(type==='satellite'){t.style.color='#a78bfa';t.textContent=obj.name;s.textContent=`LEO · ${Math.round(obj.alt)} km`;r.innerHTML=row('PERIOD',obj.period+' min')+row('INCLINATION',obj.inc.toFixed(1)+'°')+row('RESOLUTION',obj.resolution,'#22d3ee')+row('COVERAGE',obj.region)+row('POSITION',`${obj.lat.toFixed(3)}°N ${obj.lng.toFixed(3)}°E`,'#4a6280');}
+  else if(type==='incident'){t.style.color=obj.color;t.textContent=obj.label;s.textContent=new Date(obj.time).toUTCString().substring(5,22)+' UTC';r.innerHTML=row('STATUS','CONFIRMED','#ef4444')+row('POSITION',`${obj.lat.toFixed(3)}°N ${obj.lng.toFixed(3)}°E`,'#4a6280');}
+  const pw=280,ph=160;let px=mx+18,py=my-ph/2;px=Math.min(px,innerWidth-pw-16);py=Math.max(py,70);py=Math.min(py,innerHeight-ph-80);
+  pop.style.left=px+'px';pop.style.top=py+'px';pop.classList.remove('hidden');
+}
+function closePopup(){pop.classList.add('hidden');}
+
+// Sim
+let ls=0;
+function sim(){
+  PLANES.forEach((ac,i)=>{ac.lat+=ac.velLat;ac.lng+=ac.velLng;if(ac.lat>74||ac.lat<-64)ac.velLat*=-1;ac.lng=((ac.lng+180)%360)-180;if(GRP.planes.children[i])GRP.planes.children[i].position.copy(ll3(ac.lat,ac.lng));});
+  SHIPS.forEach((sh,i)=>{sh.lat+=sh.velLat;sh.lng+=sh.velLng;if(sh.lat>72||sh.lat<-66)sh.velLat*=-1;sh.lng=((sh.lng+180)%360)-180;if(GRP.ships.children[i])GRP.ships.children[i].position.copy(ll3(sh.lat,sh.lng));});
+  SATS.forEach((sat,i)=>{sat.lat+=sat.velLat;sat.lng+=sat.velLng;if(sat.lat>76||sat.lat<-76)sat.velLat*=-1;sat.lng=((sat.lng+180)%360)-180;if(GRP.satellites.children[i])GRP.satellites.children[i].position.copy(ll3(sat.lat,sat.lng,1.015));});
+  const t=Date.now()*.001;
+  GRP.jamming.children.forEach((sp,i)=>{const jz=JAM[i];if(!jz)return;const p=.88+Math.sin(t*1.6+i)*.12;const sz=.025+(jz.radius/100)*.065;sp.scale.set(sz*p,sz*p,1);});
+  GRP.incidents.children.forEach((sp,i)=>{const p=.85+Math.sin(t*2.8+i*.8)*.15;sp.scale.set(.019*p,.019*p,1);});
+}
+
+setInterval(()=>{const n=new Date();document.getElementById('uclock').textContent=`${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;},1000);
+window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
+
+(function loop(){
+  requestAnimationFrame(loop);
+  const now=Date.now();
+  if(!drag2.active){vel.y*=FRIC;vel.x*=FRIC;rot.y+=vel.y;rot.x+=vel.x*.12;rot.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,rot.x));}
+  curZ+=(targetZ-curZ)*.1;camera.position.z=curZ;
+  if(cloudMesh)cloudMesh.rotation.y+=.000038;
+  applyRot();
+  if(now-ls>1100){sim();ls=now;}
+  renderer.render(scene,camera);
+})();
+
+// Live OpenSky
+(async()=>{try{const r=await fetch('https://opensky-network.org/api/states/all?lamin=20&lomin=10&lamax=62&lomax=55',{signal:AbortSignal.timeout(10000)});if(!r.ok)return;const d=await r.json();const states=d.states||[];const live=states.filter(s=>s[6]&&s[5]&&!s[8]).slice(0,38).map(s=>{const cs=(s[1]||'').trim()||'BLOCKED',h=s[10]||0;const isMil=['RFR','UAF','NATO','USAF','USN','RAF','RU'].some(p=>cs.startsWith(p));const t=isMil?{label:cs,type:'MILITARY',color:'#f59e0b'}:{label:cs,type:'COMMERCIAL',color:'#64748b'};return{id:mkid('AC'),callsign:cs,heading:h,alt:Math.round((s[7]||0)*3.281),spd:Math.round((s[9]||0)*1.944),lat:s[6],lng:s[5],velLat:Math.cos(h*Math.PI/180)*.005*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.005*rnd(.5,1.5),...t};});if(live.length>6){PLANES.splice(0,PLANES.length,...live);while(GRP.planes.children.length)GRP.planes.remove(GRP.planes.children[0]);const ns=[];PLANES.forEach((ac,i)=>{const sp=mkAC(ac.color);sp.position.copy(ll3(ac.lat,ac.lng));sp.userData={obj:ac,type:'aircraft',idx:i};GRP.planes.add(sp);ns.push(sp);});SPRITES.splice(0,SPRITES.length,...ns,...GRP.ships.children,...GRP.satellites.children,...GRP.incidents.children);document.getElementById('sc-ac').textContent=PLANES.length;document.getElementById('hobj').textContent=`${PLANES.length+SHIPS.length+SATS.length} TRACKED`;}}catch{}})();
+
+// Boot
+const BM=['Initializing WebGL globe...','Loading satellite imagery...','Spawning tracked objects...','Calibrating orbital rings...','Injecting live ADS-B...','SENTINEL online.'];
+let bi=0;const ist=document.getElementById('istat');
+(function bl(){if(bi<BM.length){ist.textContent=BM[bi++];setTimeout(bl,340);}else{setTimeout(()=>{const intro=document.getElementById('intro');intro.classList.add('out');setTimeout(()=>intro.remove(),1300);},200);}})();
+</script>
+</body>
+</html>

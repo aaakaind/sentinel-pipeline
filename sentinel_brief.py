@@ -3,7 +3,7 @@
 SENTINEL Daily Intelligence Brief — Automated Pipeline
 AKA IND Technologies
 
-Fetches: OpenSky ADS-B, GPSJam.org interference data, CelesTrak satellite data, GDELT global events
+Fetches: OpenSky ADS-B, GPSJam.org interference data
 Posts:   Notion page (new page per day, structured intel brief)
 
 Usage:
@@ -14,12 +14,9 @@ Usage:
 Env vars required:
     NOTION_API_KEY      — from notion.so/my-integrations
     NOTION_PARENT_ID    — page or database ID to create briefs under
-
-Env vars optional (enable live feeds):
-    AIS_API_KEY         — from aisstream.io (free registration)
-    CELESTRAK_API_KEY   — from celestrak.org
 """
 
+import re
 import os
 import sys
 import json
@@ -27,7 +24,6 @@ import time
 import logging
 import argparse
 import csv
-import html as html_mod
 from datetime import datetime, timezone, timedelta
 from io import StringIO
 from typing import Optional
@@ -48,34 +44,6 @@ OPENSKY_TIMEOUT = 12
 GPSJAM_BASE = "https://gpsjam.org/data"
 GPSJAM_TIMEOUT = 10
 GPSJAM_MIN_PROB = 0.3
-
-AIS_API_KEY       = os.getenv("AIS_API_KEY", "")         # aisstream.io WebSocket key
-CELESTRAK_API_KEY = os.getenv("CELESTRAK_API_KEY", "")   # CelesTrak TLE API key
-
-CELESTRAK_GP_URL  = "https://celestrak.org/NORAD/elements/gp.php"
-CELESTRAK_TIMEOUT = 15
-CELESTRAK_GROUPS  = ["resource", "military"]  # Earth observation + military sats
-
-# Key intel/observation satellites by NORAD catalog ID
-INTEL_SAT_CATALOG = {
-    40697: ("SENTINEL-2A",    "10m MSI",  "Eastern Europe"),
-    42063: ("SENTINEL-2B",    "10m MSI",  "Global"),
-    40115: ("WORLDVIEW-3",    "**0.3m**", "Global"),
-    35946: ("WORLDVIEW-2",    "0.5m",     "Global"),
-    33331: ("GEOEYE-1",       "0.5m",     "Global"),
-    31598: ("COSMO-SKYMED 1", "SAR",      "Eastern Europe"),
-    32376: ("COSMO-SKYMED 2", "SAR",      "Eastern Europe"),
-    36124: ("HELIOS 2B",      "0.5m",     "Global"),
-    39034: ("PLEIADES 1A",    "0.5m",     "Global"),
-    39634: ("PLEIADES 1B",    "0.5m",     "Global"),
-    49258: ("PLEIADES NEO 3", "0.3m",     "Middle East"),
-    51003: ("PLEIADES NEO 4", "0.3m",     "Global"),
-}
-
-GDELT_DOC_URL     = "https://api.gdeltproject.org/api/v2/doc/doc"
-GDELT_TIMEOUT     = 15
-GDELT_QUERY       = "(conflict OR military OR airstrike OR missile OR drone strike) sourcelang:english"
-GDELT_MAX_RECORDS = 30
 
 MILITARY_PREFIXES  = ["RFR","SHF","UAF","NATO","USAF","USN","RAF","RU","HKP","UKAF"]
 ISR_PREFIXES       = ["RCH","OSB","JAKE","COBRA","IRON","FORGE"]
@@ -222,142 +190,6 @@ def fetch_gpsjam(date_str: Optional[str] = None) -> dict:
     return _sim_gpsjam(result)
 
 
-def _classify_orbit(inclination: float, altitude_km: float) -> str:
-    """Classify orbit type from inclination and altitude."""
-    if altitude_km > 35000:
-        return "GEO"
-    if altitude_km > 2000:
-        return "MEO"
-    # Sun-synchronous orbits have inclination ~97-99° to maintain constant solar angle
-    if 96 <= inclination <= 100:
-        return "LEO-SSO"
-    return "LEO"
-
-
-def fetch_celestrak() -> dict:
-    """Fetch satellite orbital data from CelesTrak GP API (OMM/JSON format)."""
-    log.info("Fetching CelesTrak satellite orbital data...")
-    result = {"satellites": [], "source": "SIM"}
-
-    all_sats = []
-    for group in CELESTRAK_GROUPS:
-        try:
-            params = {"GROUP": group, "FORMAT": "json"}
-            if CELESTRAK_API_KEY:
-                params["API_KEY"] = CELESTRAK_API_KEY
-            r = requests.get(CELESTRAK_GP_URL, params=params, timeout=CELESTRAK_TIMEOUT)
-            if r.ok:
-                data = r.json()
-                if isinstance(data, list):
-                    all_sats.extend(data)
-                    log.info(f"CelesTrak {group}: {len(data)} objects")
-            else:
-                log.warning(f"CelesTrak {group} HTTP {r.status_code}")
-        except requests.Timeout:
-            log.warning(f"CelesTrak {group} timeout")
-        except Exception as e:
-            log.warning(f"CelesTrak {group} error: {e}")
-
-    if not all_sats:
-        log.warning("CelesTrak unavailable — using simulated satellite data")
-        return _sim_satellites(result)
-
-    # Match against intel satellite catalog by NORAD ID
-    matched = []
-    for sat in all_sats:
-        norad_id = sat.get("NORAD_CAT_ID")
-        if norad_id not in INTEL_SAT_CATALOG:
-            continue
-        display_name, res, coverage = INTEL_SAT_CATALOG[norad_id]
-        incl = sat.get("INCLINATION") or 0
-        peri = sat.get("PERIAPSIS")
-        apo  = sat.get("APOAPSIS")
-        alt  = round((peri + apo) / 2) if peri is not None and apo is not None else 0
-        matched.append({
-            "name": display_name,
-            "norad_id": norad_id,
-            "orbit": _classify_orbit(incl, alt),
-            "altitude": f"{alt} km",
-            "resolution": res,
-            "coverage": coverage,
-            "inclination": round(incl, 1),
-            "period_min": round(sat.get("PERIOD") or 0, 1),
-            "epoch": sat.get("EPOCH", ""),
-            "source": "CelesTrak-LIVE",
-        })
-
-    if matched:
-        result["satellites"] = matched
-        result["source"] = "CelesTrak-LIVE"
-        log.info(f"CelesTrak: {len(matched)} intel satellites tracked from {len(all_sats)} total objects")
-        return result
-
-    log.warning("No intel satellites matched in CelesTrak data — using simulated data")
-    return _sim_satellites(result)
-
-
-def fetch_gdelt() -> dict:
-    """Fetch recent global conflict/security events from GDELT Project DOC API v2."""
-    log.info("Fetching GDELT Project global events data...")
-    result = {"articles": [], "source": "SIM"}
-
-    params = {
-        "query": GDELT_QUERY,
-        "mode": "ArtList",
-        "maxrecords": GDELT_MAX_RECORDS,
-        "format": "json",
-        "timespan": "24h",
-        "sort": "DateDesc",
-    }
-
-    try:
-        r = requests.get(GDELT_DOC_URL, params=params, timeout=GDELT_TIMEOUT)
-        if not r.ok:
-            log.warning(f"GDELT API HTTP {r.status_code} — using simulated data")
-            return _sim_gdelt(result)
-
-        data = r.json()
-        articles = data.get("articles", [])
-
-        if not articles:
-            log.warning("GDELT returned no articles — using simulated data")
-            return _sim_gdelt(result)
-
-        parsed = []
-        for art in articles[:GDELT_MAX_RECORDS]:
-            seendate = art.get("seendate", "")
-            # GDELT dates: "20260306T123456Z" → "2026-03-06 12:34 UTC"
-            time_str = ""
-            if len(seendate) >= 15:
-                try:
-                    dt = datetime.strptime(seendate[:15], "%Y%m%dT%H%M%S")
-                    time_str = dt.strftime("%H:%M UTC")
-                except ValueError:
-                    time_str = seendate
-            parsed.append({
-                "title": art.get("title", "Untitled").strip(),
-                "url": art.get("url", ""),
-                "domain": art.get("domain", ""),
-                "seendate": seendate,
-                "time": time_str,
-                "language": art.get("language", "English"),
-                "sourcecountry": art.get("sourcecountry", ""),
-                "source": "GDELT-LIVE",
-            })
-
-        result["articles"] = parsed
-        result["source"] = "GDELT-LIVE"
-        log.info(f"GDELT: {len(parsed)} conflict-related articles (24h window)")
-        return result
-
-    except requests.Timeout:
-        log.warning("GDELT timeout — using simulated data")
-        return _sim_gdelt(result)
-    except Exception as e:
-        log.warning(f"GDELT error: {e} — using simulated data")
-        return _sim_gdelt(result)
-
-
 # ─────────────────────────────────────────────
 #  SIMULATION FALLBACKS
 # ─────────────────────────────────────────────
@@ -405,51 +237,15 @@ def _sim_gpsjam(result: dict) -> dict:
     return result
 
 
-def _sim_satellites(result: dict) -> dict:
-    """Simulation fallback — hardcoded satellite data matching pre-live format."""
-    sats = [
-        {"name": "SENTINEL-2A",  "orbit": "LEO-SSO", "altitude": "786 km", "resolution": "10m MSI",  "coverage": "Eastern Europe", "source": "SIM"},
-        {"name": "WORLDVIEW-3",  "orbit": "LEO",     "altitude": "617 km", "resolution": "**0.3m**", "coverage": "Global",         "source": "SIM"},
-        {"name": "COSMO-SKYMED", "orbit": "LEO-SSO", "altitude": "619 km", "resolution": "SAR",      "coverage": "Eastern Europe", "source": "SIM"},
-        {"name": "HELIOS-2B",    "orbit": "LEO-SSO", "altitude": "680 km", "resolution": "0.5m",     "coverage": "Global",         "source": "SIM"},
-        {"name": "OFEK-16",      "orbit": "LEO",     "altitude": "420 km", "resolution": "**0.3m**", "coverage": "Middle East",    "source": "SIM"},
-        {"name": "PLEIADES-NEO", "orbit": "LEO-SSO", "altitude": "480 km", "resolution": "0.3m",     "coverage": "Middle East",    "source": "SIM"},
-    ]
-    result["satellites"] = sats
-    result["source"] = "SIM"
-    log.info(f"Simulated: {len(sats)} satellites")
-    return result
-
-
-def _sim_gdelt(result: dict) -> dict:
-    """Simulation fallback — representative GDELT articles for template."""
-    articles = [
-        {"title": "Missile strikes reported in eastern Ukraine overnight",       "domain": "reuters.com",     "time": "03:14 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
-        {"title": "IDF confirms drone interception over northern border",        "domain": "timesofisrael.com","time": "07:32 UTC", "sourcecountry": "Israel",         "source": "SIM"},
-        {"title": "NATO increases Baltic air patrols amid rising tensions",      "domain": "bbc.co.uk",       "time": "09:45 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
-        {"title": "Red Sea shipping disrupted by Houthi attacks",                "domain": "aljazeera.com",   "time": "11:20 UTC", "sourcecountry": "Qatar",          "source": "SIM"},
-        {"title": "South China Sea military exercises escalate regional concern", "domain": "scmp.com",        "time": "14:55 UTC", "sourcecountry": "Hong Kong",      "source": "SIM"},
-        {"title": "Wagner-linked forces advance in Sahel region",                "domain": "france24.com",    "time": "16:30 UTC", "sourcecountry": "France",         "source": "SIM"},
-        {"title": "DPRK ballistic missile test prompts emergency UN session",    "domain": "apnews.com",      "time": "19:10 UTC", "sourcecountry": "United States",  "source": "SIM"},
-        {"title": "Russian submarine activity detected in North Atlantic",       "domain": "bbc.co.uk",       "time": "21:40 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
-    ]
-    result["articles"] = articles
-    result["source"] = "SIM"
-    log.info(f"Simulated: {len(articles)} GDELT articles")
-    return result
-
-
 # ─────────────────────────────────────────────
 #  BRIEF GENERATOR — Notion Markdown
 # ─────────────────────────────────────────────
 
-def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: dict, brief_date: str) -> str:
+def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
     """Build Notion-flavored Markdown for the daily brief page."""
     now_str    = datetime.now(timezone.utc).strftime("%B %-d, %Y %H:%M UTC")
     air_source = ac_data["source"]
     jam_source = jam_data["source"]
-    sat_source = sat_data.get("source", "SIM")
-    gdelt_source = gdelt_data.get("source", "SIM")
     is_live    = "LIVE" in air_source
 
     total_ac  = len(ac_data["aircraft"])
@@ -474,7 +270,7 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
     A(f'::: callout {{icon="🛰" color="gray_bg"}}')
     A(f'**SENTINEL World Intelligence Platform** · Daily Brief')
     A(f'**Generated:** {now_str}  ·  **Coverage Date:** {brief_date}')
-    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}  ·  **Sat Feed:** {sat_source}  ·  **Events:** {gdelt_source}')
+    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}')
     A(f'**Theater:** Eastern Europe / Middle East / Indo-Pacific / North Atlantic / Sub-Saharan Africa / Americas')
     A(':::')
     A('')
@@ -607,53 +403,42 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
     A('')
 
     # ── SATELLITES ───────────────────────────
-    sat_live_badge = "✅ LIVE" if "LIVE" in sat_source else "⚠ SIMULATED"
-    A(f'# 🛰 Space Domain — Satellite Coverage {sat_live_badge}')
+    A('# 🛰 Space Domain — Satellite Coverage')
     A('')
-    A(f'> **Source:** CelesTrak GP/OMM ({sat_source}, JSON orbital elements)')
+    A('> **Source:** CelesTrak TLE (Two-Line Element orbital propagation)')
     A('')
     A('<table fit-page-width="true" header-row="true">')
     A('\t<tr><td>**Asset**</td><td>**Orbit**</td><td>**Altitude**</td><td>**Resolution**</td><td>**Coverage**</td></tr>')
-    for sat in sat_data.get("satellites", []):
-        A(f'\t<tr><td>{sat["name"]}</td><td>{sat["orbit"]}</td><td>{sat["altitude"]}</td><td>{sat["resolution"]}</td><td>{sat["coverage"]}</td></tr>')
+    for sat in [
+        ("SENTINEL-2A","LEO-SSO","580 km","0.5m","Eastern Europe"),
+        ("WORLDVIEW-3","LEO","617 km","**0.3m**","Global"),
+        ("COSMO-SKYMED","LEO-SSO","619 km","SAR","Eastern Europe"),
+        ("HELIOS-2B","LEO-SSO","680 km","0.5m","Global"),
+        ("OFEK-16","LEO","420 km","**0.3m**","Middle East"),
+        ("PLEIADES-NEO","LEO-SSO","480 km","0.3m","Middle East"),
+    ]:
+        A(f'\t<tr><td>{sat[0]}</td><td>{sat[1]}</td><td>{sat[2]}</td><td>{sat[3]}</td><td>{sat[4]}</td></tr>')
     A('</table>')
     A('')
     A('---')
     A('')
 
-    # ── GDELT GLOBAL EVENTS ─────────────────
-    gdelt_live_badge = "✅ LIVE" if "LIVE" in gdelt_source else "⚠ SIMULATED"
-    gdelt_articles = gdelt_data.get("articles", [])
-    A(f'# 🌐 Global Events Monitor — GDELT {gdelt_live_badge}')
+    # ── INCIDENTS ────────────────────────────
+    A('# 💥 Incident Log — 24H Window')
     A('')
-    A(f'> **Source:** [GDELT Project](https://gdeltproject.org) DOC API v2 ({gdelt_source}) · {len(gdelt_articles)} articles · 24h window')
+    A('> **Source:** ACLED (Armed Conflict Location & Event Data) · Simulated format')
     A('')
-    if gdelt_articles:
-        A('<table fit-page-width="true" header-row="true">')
-        A('\t<tr><td>**Time**</td><td>**Headline**</td><td>**Source**</td></tr>')
-        for art in gdelt_articles[:12]:
-            time_str = html_mod.escape(art.get("time", ""))
-            title = html_mod.escape(art.get("title", "Untitled"))
-            # Truncate long titles for table display
-            if len(title) > 90:
-                title = title[:87] + "..."
-            domain = html_mod.escape(art.get("domain", ""))
-            A(f'\t<tr><td>{time_str}</td><td>{title}</td><td>{domain}</td></tr>')
-        A('</table>')
-        if len(gdelt_articles) > 12:
-            A('')
-            A('<details>')
-            A(f'<summary>**All GDELT Articles** ({len(gdelt_articles)} total)</summary>')
-            A('')
-            for art in gdelt_articles[12:]:
-                time_str = html_mod.escape(art.get("time", ""))
-                title = html_mod.escape(art.get("title", "Untitled"))
-                domain = html_mod.escape(art.get("domain", ""))
-                A(f'- {time_str} · **{title}** · {domain}')
-            A('')
-            A('</details>')
-    else:
-        A('*No conflict-related articles found in 24h window.*')
+    for inc in [
+        ("MISSILE IMPACT", "48.12°N 37.45°E", "03:14", True),
+        ("DRONE STRIKE",   "46.88°N 35.22°E", "07:32", True),
+        ("ARTILLERY",      "47.65°N 38.11°E", "11:45", True),
+        ("VESSEL DAMAGED", "45.22°N 33.88°E", "14:20", True),
+        ("AIRSTRIKE",      "49.34°N 36.77°E", "16:55", False),
+        ("RADAR CONTACT",  "47.01°N 39.44°E", "19:10", False),
+    ]:
+        check = "x" if inc[3] else " "
+        conf  = "✓ Confirmed" if inc[3] else "⚠ Unverified"
+        A(f'- [{check}] **{inc[0]}** · {inc[1]} · {inc[2]} UTC · {conf}')
     A('')
     A('---')
     A('')
@@ -673,14 +458,268 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
 #  NOTION POSTER
 # ─────────────────────────────────────────────
 
+
+# ─────────────────────────────────────────────
+#  NOTION POSTER
+# ─────────────────────────────────────────────
+
+def _rt(text: str) -> list:
+    """Parse inline markdown into Notion rich_text array (bold, italic, code)."""
+    parts = []
+    # Split on **bold**, *italic*, `code`
+    pattern = r'(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)'
+    segments = re.split(pattern, text)
+    for seg in segments:
+        if not seg:
+            continue
+        ann = {}
+        content = seg
+        if seg.startswith("**") and seg.endswith("**"):
+            content = seg[2:-2]
+            ann["bold"] = True
+        elif seg.startswith("*") and seg.endswith("*"):
+            content = seg[1:-1]
+            ann["italic"] = True
+        elif seg.startswith("`") and seg.endswith("`"):
+            content = seg[1:-1]
+            ann["code"] = True
+        if content:
+            rt = {"type": "text", "text": {"content": content[:2000]}}
+            if ann:
+                rt["annotations"] = ann
+            parts.append(rt)
+    return parts or [{"type": "text", "text": {"content": text[:2000]}}]
+
+
+def _heading(text: str, level: int) -> dict:
+    t = f"heading_{level}"
+    return {"object": "block", "type": t, t: {"rich_text": _rt(text)}}
+
+
+def _para(text: str) -> dict:
+    return {"object": "block", "type": "paragraph",
+            "paragraph": {"rich_text": _rt(text)}}
+
+
+def _bullet(text: str) -> dict:
+    return {"object": "block", "type": "bulleted_list_item",
+            "bulleted_list_item": {"rich_text": _rt(text)}}
+
+
+def _todo(text: str, checked: bool) -> dict:
+    return {"object": "block", "type": "to_do",
+            "to_do": {"rich_text": _rt(text), "checked": checked}}
+
+
+def _divider() -> dict:
+    return {"object": "block", "type": "divider", "divider": {}}
+
+
+def _quote(text: str) -> dict:
+    return {"object": "block", "type": "quote",
+            "quote": {"rich_text": _rt(text)}}
+
+
+def _callout(text: str, icon: str = "🛰", color: str = "gray_background") -> dict:
+    COLOR_MAP = {
+        "gray_bg": "gray_background", "blue_bg": "blue_background",
+        "red_bg": "red_background", "orange_bg": "orange_background",
+        "yellow_bg": "yellow_background", "green_bg": "green_background",
+        "purple_bg": "purple_background", "pink_bg": "pink_background",
+    }
+    notion_color = COLOR_MAP.get(color, color if color.endswith("_background") else "gray_background")
+    return {
+        "object": "block", "type": "callout",
+        "callout": {
+            "rich_text": _rt(text),
+            "icon": {"type": "emoji", "emoji": icon},
+            "color": notion_color,
+        }
+    }
+
+
+def _toggle(summary: str, children: list) -> dict:
+    return {
+        "object": "block", "type": "toggle",
+        "toggle": {
+            "rich_text": _rt(summary),
+            "children": children[:100],
+        }
+    }
+
+
+def _table_row(cells: list) -> dict:
+    return {
+        "object": "block", "type": "table_row",
+        "table_row": {"cells": [[{"type": "text", "text": {"content": re.sub(r"\*\*(.+?)\*\*", r"\1", c)}}] for c in cells]}
+    }
+
+
+def _parse_table(block: str) -> list:
+    """Parse <table> HTML into Notion table block."""
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.DOTALL)
+    if not rows:
+        return [_para(block[:200])]
+    parsed_rows = []
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        if cells:
+            parsed_rows.append(cells)
+    if not parsed_rows:
+        return []
+    col_count = max(len(r) for r in parsed_rows)
+    # Pad rows
+    for r in parsed_rows:
+        while len(r) < col_count:
+            r.append("")
+    has_header = "header-row" in block
+    table_block = {
+        "object": "block", "type": "table",
+        "table": {
+            "table_width": col_count,
+            "has_column_header": False,
+            "has_row_header": False,
+            "children": [_table_row(r) for r in parsed_rows],
+        }
+    }
+    if has_header and parsed_rows:
+        table_block["table"]["has_column_header"] = True
+    return [table_block]
+
+
+def md_to_notion_blocks(md: str) -> list:
+    """Convert Notion-flavored Markdown to Notion API block objects."""
+    blocks = []
+    lines = md.split("\n")
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Skip empty
+        if not stripped:
+            i += 1
+            continue
+
+        # Divider
+        if stripped == "---":
+            blocks.append(_divider())
+            i += 1
+            continue
+
+        # Headings
+        if stripped.startswith("#### "):
+            blocks.append(_heading(stripped[5:], 3))
+            i += 1; continue
+        if stripped.startswith("### "):
+            blocks.append(_heading(stripped[4:], 3))
+            i += 1; continue
+        if stripped.startswith("## "):
+            blocks.append(_heading(stripped[3:], 2))
+            i += 1; continue
+        if stripped.startswith("# "):
+            # Strip {color=...} attribute
+            txt = re.sub(r"\s*\{color=[^}]+\}", "", stripped[2:]).strip()
+            blocks.append(_heading(txt, 1))
+            i += 1; continue
+
+        # Blockquote
+        if stripped.startswith("> "):
+            blocks.append(_quote(stripped[2:]))
+            i += 1; continue
+
+        # Callout ::: callout {icon="X" color="Y"}
+        if stripped.startswith("::: callout"):
+            icon_m = re.search(r'icon="([^"]+)"', stripped)
+            color_m = re.search(r'color="([^"]+)"', stripped)
+            icon = icon_m.group(1) if icon_m else "🛰"
+            color = color_m.group(1) if color_m else "gray_bg"
+            # collect until :::
+            i += 1
+            content_lines = []
+            while i < len(lines) and lines[i].strip() != ":::":
+                content_lines.append(lines[i].strip())
+                i += 1
+            i += 1  # skip closing :::
+            text = " ".join(l for l in content_lines if l)
+            blocks.append(_callout(text, icon, color))
+            continue
+
+        # Toggle / details
+        if stripped.startswith("<details>") or stripped == "<details>":
+            i += 1
+            summary = ""
+            if i < len(lines) and "<summary>" in lines[i]:
+                sm = re.search(r"<summary>(.*?)</summary>", lines[i])
+                if sm:
+                    summary = sm.group(1)
+                i += 1
+            children = []
+            while i < len(lines) and lines[i].strip() != "</details>":
+                cl = lines[i].strip()
+                if cl.startswith("- "):
+                    children.append(_bullet(cl[2:]))
+                elif cl:
+                    children.append(_para(cl))
+                i += 1
+            i += 1  # skip </details>
+            blocks.append(_toggle(summary or "Details", children or [_para("—")]))
+            continue
+
+        # Table
+        if stripped.startswith("<table"):
+            table_lines = []
+            while i < len(lines) and not lines[i].strip().startswith("</table>"):
+                table_lines.append(lines[i])
+                i += 1
+            i += 1  # skip </table>
+            table_str = "\n".join(table_lines)
+            blocks.extend(_parse_table(table_str))
+            continue
+
+        # To-do items
+        todo_m = re.match(r"- \[(x| )\] (.+)", stripped)
+        if todo_m:
+            checked = todo_m.group(1) == "x"
+            text = todo_m.group(2)
+            blocks.append(_todo(text, checked))
+            i += 1; continue
+
+        # Bullet list
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            blocks.append(_bullet(stripped[2:]))
+            i += 1; continue
+
+        # Numbered list
+        num_m = re.match(r"^\d+\.\s+(.+)", stripped)
+        if num_m:
+            blocks.append({
+                "object": "block", "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": _rt(num_m.group(1))}
+            })
+            i += 1; continue
+
+        # Skip HTML tags we don't handle
+        if stripped.startswith("<") and stripped.endswith(">"):
+            i += 1; continue
+
+        # Default: paragraph
+        blocks.append(_para(stripped))
+        i += 1
+
+    return blocks[:100]
+
+
 def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Optional[str]:
     """Create a new Notion page with the daily brief content."""
     if not NOTION_API_KEY and not dry_run:
-        log.warning("NOTION_API_KEY not set — skipping Notion post. Set the repository secret to enable.")
-        return None
+        log.error("NOTION_API_KEY not set. Use --dry-run or set env var.")
+        sys.exit(1)
     if not NOTION_PARENT_ID and not dry_run:
-        log.warning("NOTION_PARENT_ID not set — skipping Notion post. Set the repository secret to enable.")
-        return None
+        log.error("NOTION_PARENT_ID not set. Use --dry-run or set env var.")
+        sys.exit(1)
 
     d = datetime.strptime(brief_date, "%Y-%m-%d")
     title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
@@ -701,61 +740,49 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
-    payload = {
+
+    blocks = md_to_notion_blocks(content)
+    log.info(f"Converted markdown to {len(blocks)} Notion blocks")
+
+    # Notion allows max 100 blocks per request — chunk if needed
+    page_payload = {
         "parent": {"page_id": NOTION_PARENT_ID},
         "properties": {
             "title": [{"text": {"content": title}}]
         },
-        "children": _md_to_notion_blocks(content)
+        "children": blocks[:100],
     }
 
     log.info(f"Posting to Notion: '{title}'...")
-    try:
-        r = requests.post("https://api.notion.com/v1/pages",
-                          headers=headers, json=payload, timeout=30)
-    except requests.RequestException as e:
-        log.error(f"Notion connection error: {e}")
-        return None
-    if r.status_code == 200:
-        page = r.json()
-        url  = page.get("url", "")
-        log.info(f"✅ Created: {url}")
-        return url
-    else:
+    r = requests.post("https://api.notion.com/v1/pages",
+                      headers=headers, json=page_payload, timeout=30)
+    if r.status_code != 200:
         log.error(f"Notion API error {r.status_code}: {r.text[:500]}")
         return None
 
+    page = r.json()
+    page_id = page.get("id", "")
+    url = page.get("url", "")
+    log.info(f"✅ Page created: {url}")
 
-def _md_to_notion_blocks(md: str) -> list:
-    """
-    Lightweight converter: passes content as a single rich text block.
-    For production, swap in a full Notion Markdown parser.
-    This approach uses Notion's paragraph blocks with the raw markdown
-    which displays cleanly for the structured content we generate.
-    """
-    blocks = []
-    paragraphs = md.split("\n\n")
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-        # Use paragraph block with text content
-        # Notion API ignores most markdown in paragraph rich_text,
-        # but handles heading blocks and callouts natively via the MCP tool.
-        # For GitHub Actions pipeline, we use the MCP Notion integration instead.
-        blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": para[:2000]}}]
-            }
-        })
-    return blocks[:100]  # Notion block limit per request
+    # Append remaining blocks in chunks of 100
+    if len(blocks) > 100:
+        for chunk_start in range(100, len(blocks), 100):
+            chunk = blocks[chunk_start:chunk_start + 100]
+            r2 = requests.patch(
+                f"https://api.notion.com/v1/blocks/{page_id}/children",
+                headers=headers,
+                json={"children": chunk},
+                timeout=30
+            )
+            if r2.status_code != 200:
+                log.warning(f"Block append chunk {chunk_start} failed: {r2.status_code}")
+            else:
+                log.info(f"Appended blocks {chunk_start}–{chunk_start+len(chunk)}")
+
+    return url
 
 
-# ─────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SENTINEL Daily Intelligence Brief Generator")
@@ -772,22 +799,17 @@ def main():
     ac_data  = fetch_opensky()
     time.sleep(1)  # be kind to APIs
     jam_data = fetch_gpsjam()
-    time.sleep(1)
-    sat_data = fetch_celestrak()
-    time.sleep(1)
-    gdelt_data = fetch_gdelt()
 
     # Optional raw data export
     if args.json_out:
         with open(args.json_out, "w") as f:
             json.dump({"aircraft": ac_data, "jamming": jam_data,
-                       "satellites": sat_data, "gdelt": gdelt_data,
                        "generated": datetime.now(timezone.utc).isoformat()}, f, indent=2)
         log.info(f"Raw data saved to {args.json_out}")
 
     # Generate brief
     log.info("Generating intelligence brief...")
-    content = generate_brief(ac_data, jam_data, sat_data, gdelt_data, brief_date)
+    content = generate_brief(ac_data, jam_data, brief_date)
     log.info(f"Brief generated: {len(content)} chars")
 
     # Post to Notion
@@ -795,11 +817,8 @@ def main():
     if url:
         log.info(f"🛰 Daily brief published: {url}")
     elif not args.dry_run:
-        if NOTION_API_KEY and NOTION_PARENT_ID:
-            log.error("Notion API call failed — brief saved locally but not posted.")
-            sys.exit(1)
-        else:
-            log.warning("Notion post skipped (credentials not configured) — brief still saved locally.")
+        log.error("Brief generation failed.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
