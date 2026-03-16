@@ -705,7 +705,7 @@ async function sentinelBoot(){
     async function pollOS(){osCD=15;const ac=await fetchOpenSky();if(ac?.length>0){S.tracks.aircraft=ac;rebuildMapMarkers();updateStats();}setTimeout(pollOS,15000);}
     setTimeout(pollOS,15000);
     setInterval(async()=>{const z=await fetchGPSJam();if(z){S.jamming=z;rebuildMapMarkers();updateStats();}},3600000);
-    window.addEventListener('resize',()=>{rszGlobe();if(S.mapReady&&S.map)S.map.invalidateSize();});
+    window.addEventListener('resize',()=>{if(S.map)S.map.invalidateSize();});
   },BMSG.length*320+500);
 }
 
