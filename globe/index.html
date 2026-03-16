@@ -151,6 +151,7 @@ const gm=new THREE.LineBasicMaterial({color:0x1a3344,transparent:true,opacity:.1
 for(let lt=-60;lt<=60;lt+=30){const pts=[];for(let lg=0;lg<=360;lg+=3)pts.push(ll3(lt,lg-180,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
 for(let lg=-180;lg<180;lg+=30){const pts=[];for(let lt=-85;lt<=85;lt+=3)pts.push(ll3(lt,lg,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
 
+function posv(sp,lat,lng,r){r=r||1.003;var phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;sp.position.set(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
 function ll3(lat,lng,r=1.003){const phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
 
 // Sprite factories
@@ -184,11 +185,11 @@ const SPRITES=[];
 function build(){
   for(const k of Object.keys(GRP)){while(GRP[k].children.length)GRP[k].remove(GRP[k].children[0]);}
   SPRITES.length=0;
-  PLANES.forEach((ac,i)=>{const sp=mkAC(ac.color);sp.position.copy(ll3(ac.lat,ac.lng));sp.userData={obj:ac,type:'aircraft',idx:i};GRP.planes.add(sp);SPRITES.push(sp);});
-  SHIPS.forEach((sh,i)=>{const sp=mkSH(sh.color);sp.position.copy(ll3(sh.lat,sh.lng));sp.userData={obj:sh,type:'vessel',idx:i};GRP.ships.add(sp);SPRITES.push(sp);});
-  SATS.forEach((sat,i)=>{const sp=mkSAT();sp.position.copy(ll3(sat.lat,sat.lng,1.015));sp.userData={obj:sat,type:'satellite',idx:i};GRP.satellites.add(sp);SPRITES.push(sp);GRP.orbits.add(mkORB(sat.inc,sat.lng,sat.alt));});
-  JAM.forEach(jz=>{const sp=mkJAM(jz.radius,jz.intensity);sp.position.copy(ll3(jz.lat,jz.lng,1.001));GRP.jamming.add(sp);});
-  INC.forEach((inc,i)=>{const sp=mkINC(inc.color);sp.position.copy(ll3(inc.lat,inc.lng));sp.userData={obj:inc,type:'incident',idx:i};GRP.incidents.add(sp);SPRITES.push(sp);});
+  PLANES.forEach((ac,i)=>{const sp=mkAC(ac.color);posv(sp,ac.lat,ac.lng);sp.userData={obj:ac,type:'aircraft',idx:i};GRP.planes.add(sp);SPRITES.push(sp);});
+  SHIPS.forEach((sh,i)=>{const sp=mkSH(sh.color);posv(sp,sh.lat,sh.lng);sp.userData={obj:sh,type:'vessel',idx:i};GRP.ships.add(sp);SPRITES.push(sp);});
+  SATS.forEach((sat,i)=>{const sp=mkSAT();posv(sp,sat.lat,sat.lng,1.015);sp.userData={obj:sat,type:'satellite',idx:i};GRP.satellites.add(sp);SPRITES.push(sp);GRP.orbits.add(mkORB(sat.inc,sat.lng,sat.alt));});
+  JAM.forEach(jz=>{const sp=mkJAM(jz.radius,jz.intensity);posv(sp,jz.lat,jz.lng,1.001);GRP.jamming.add(sp);});
+  INC.forEach((inc,i)=>{const sp=mkINC(inc.color);posv(sp,inc.lat,inc.lng);sp.userData={obj:inc,type:'incident',idx:i};GRP.incidents.add(sp);SPRITES.push(sp);});
   document.getElementById('sc-ac').textContent=PLANES.length;
   document.getElementById('sc-nv').textContent=SHIPS.length;
   document.getElementById('sc-sat').textContent=SATS.length;
@@ -254,9 +255,9 @@ function closePopup(){pop.classList.add('hidden');}
 // Sim
 let ls=0;
 function sim(){
-  PLANES.forEach((ac,i)=>{ac.lat+=ac.velLat;ac.lng+=ac.velLng;if(ac.lat>74||ac.lat<-64)ac.velLat*=-1;ac.lng=((ac.lng+180)%360)-180;if(GRP.planes.children[i])GRP.planes.children[i].position.copy(ll3(ac.lat,ac.lng));});
-  SHIPS.forEach((sh,i)=>{sh.lat+=sh.velLat;sh.lng+=sh.velLng;if(sh.lat>72||sh.lat<-66)sh.velLat*=-1;sh.lng=((sh.lng+180)%360)-180;if(GRP.ships.children[i])GRP.ships.children[i].position.copy(ll3(sh.lat,sh.lng));});
-  SATS.forEach((sat,i)=>{sat.lat+=sat.velLat;sat.lng+=sat.velLng;if(sat.lat>76||sat.lat<-76)sat.velLat*=-1;sat.lng=((sat.lng+180)%360)-180;if(GRP.satellites.children[i])GRP.satellites.children[i].position.copy(ll3(sat.lat,sat.lng,1.015));});
+  PLANES.forEach((ac,i)=>{ac.lat+=ac.velLat;ac.lng+=ac.velLng;if(ac.lat>74||ac.lat<-64)ac.velLat*=-1;ac.lng=((ac.lng+180)%360)-180;if(GRP.planes.children[i])posv(GRP.planes.children[i],ac.lat,ac.lng);});
+  SHIPS.forEach((sh,i)=>{sh.lat+=sh.velLat;sh.lng+=sh.velLng;if(sh.lat>72||sh.lat<-66)sh.velLat*=-1;sh.lng=((sh.lng+180)%360)-180;if(GRP.ships.children[i])posv(GRP.ships.children[i],sh.lat,sh.lng);});
+  SATS.forEach((sat,i)=>{sat.lat+=sat.velLat;sat.lng+=sat.velLng;if(sat.lat>76||sat.lat<-76)sat.velLat*=-1;sat.lng=((sat.lng+180)%360)-180;if(GRP.satellites.children[i])posv(GRP.satellites.children[i],sat.lat,sat.lng,1.015);});
   const t=Date.now()*.001;
   GRP.jamming.children.forEach((sp,i)=>{const jz=JAM[i];if(!jz)return;const p=.88+Math.sin(t*1.6+i)*.12;const sz=.025+(jz.radius/100)*.065;sp.scale.set(sz*p,sz*p,1);});
   GRP.incidents.children.forEach((sp,i)=>{const p=.85+Math.sin(t*2.8+i*.8)*.15;sp.scale.set(.019*p,.019*p,1);});
@@ -277,7 +278,7 @@ window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);c
 })();
 
 // Live OpenSky
-(async()=>{try{const r=await fetch('https://opensky-network.org/api/states/all?lamin=20&lomin=10&lamax=62&lomax=55',{signal:AbortSignal.timeout(10000)});if(!r.ok)return;const d=await r.json();const states=d.states||[];const live=states.filter(s=>s[6]&&s[5]&&!s[8]).slice(0,38).map(s=>{const cs=(s[1]||'').trim()||'BLOCKED',h=s[10]||0;const isMil=['RFR','UAF','NATO','USAF','USN','RAF','RU'].some(p=>cs.startsWith(p));const t=isMil?{label:cs,type:'MILITARY',color:'#f59e0b'}:{label:cs,type:'COMMERCIAL',color:'#64748b'};return{id:mkid('AC'),callsign:cs,heading:h,alt:Math.round((s[7]||0)*3.281),spd:Math.round((s[9]||0)*1.944),lat:s[6],lng:s[5],velLat:Math.cos(h*Math.PI/180)*.005*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.005*rnd(.5,1.5),...t};});if(live.length>6){PLANES.splice(0,PLANES.length,...live);while(GRP.planes.children.length)GRP.planes.remove(GRP.planes.children[0]);const ns=[];PLANES.forEach((ac,i)=>{const sp=mkAC(ac.color);sp.position.copy(ll3(ac.lat,ac.lng));sp.userData={obj:ac,type:'aircraft',idx:i};GRP.planes.add(sp);ns.push(sp);});SPRITES.splice(0,SPRITES.length,...ns,...GRP.ships.children,...GRP.satellites.children,...GRP.incidents.children);document.getElementById('sc-ac').textContent=PLANES.length;document.getElementById('hobj').textContent=`${PLANES.length+SHIPS.length+SATS.length} TRACKED`;}}catch{}})();
+(async()=>{try{const r=await fetch('https://opensky-network.org/api/states/all?lamin=20&lomin=10&lamax=62&lomax=55',{signal:AbortSignal.timeout(10000)});if(!r.ok)return;const d=await r.json();const states=d.states||[];const live=states.filter(s=>s[6]&&s[5]&&!s[8]).slice(0,38).map(s=>{const cs=(s[1]||'').trim()||'BLOCKED',h=s[10]||0;const isMil=['RFR','UAF','NATO','USAF','USN','RAF','RU'].some(p=>cs.startsWith(p));const t=isMil?{label:cs,type:'MILITARY',color:'#f59e0b'}:{label:cs,type:'COMMERCIAL',color:'#64748b'};return{id:mkid('AC'),callsign:cs,heading:h,alt:Math.round((s[7]||0)*3.281),spd:Math.round((s[9]||0)*1.944),lat:s[6],lng:s[5],velLat:Math.cos(h*Math.PI/180)*.005*rnd(.5,1.5),velLng:Math.sin(h*Math.PI/180)*.005*rnd(.5,1.5),...t};});if(live.length>6){PLANES.splice(0,PLANES.length,...live);while(GRP.planes.children.length)GRP.planes.remove(GRP.planes.children[0]);const ns=[];PLANES.forEach((ac,i)=>{const sp=mkAC(ac.color);posv(sp,ac.lat,ac.lng);sp.userData={obj:ac,type:'aircraft',idx:i};GRP.planes.add(sp);ns.push(sp);});SPRITES.splice(0,SPRITES.length,...ns,...GRP.ships.children,...GRP.satellites.children,...GRP.incidents.children);document.getElementById('sc-ac').textContent=PLANES.length;document.getElementById('hobj').textContent=`${PLANES.length+SHIPS.length+SATS.length} TRACKED`;}}catch{}})();
 
 // Boot
 const BM=['Initializing WebGL globe...','Loading satellite imagery...','Spawning tracked objects...','Calibrating orbital rings...','Injecting live ADS-B...','SENTINEL online.'];
