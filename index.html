@@ -1,11 +1,79 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=sentinel-v5.html">
-  <title>SENTINEL — Redirecting</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTINEL — AKA IND Technologies</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;background:#010509;font-family:'DM Mono',monospace;color:#dde6f0;overflow:hidden;}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;}
+canvas#bg{position:fixed;inset:0;z-index:0;}
+.wrap{position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;gap:32px;}
+.logo{font-family:'Syne',sans-serif;font-size:54px;font-weight:800;letter-spacing:.12em;background:linear-gradient(135deg,#22d3ee 0%,#3b82f6 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;}
+.sub{font-size:8px;letter-spacing:.45em;color:rgba(34,211,238,.3);text-transform:uppercase;margin-top:-10px;}
+.divider{width:200px;height:1px;background:linear-gradient(90deg,transparent,rgba(34,211,238,.2),transparent);}
+.cards{display:flex;gap:16px;}
+.card{display:flex;flex-direction:column;gap:14px;padding:24px 28px;background:rgba(6,13,23,.9);border:1px solid rgba(34,211,238,.1);border-radius:10px;cursor:pointer;text-decoration:none;color:inherit;transition:all .2s;backdrop-filter:blur(12px);min-width:200px;}
+.card:hover{border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.05);transform:translateY(-3px);box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 30px rgba(34,211,238,.08);}
+.card-icon{font-size:28px;line-height:1;}
+.card-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;letter-spacing:.06em;}
+.card-desc{font-size:9px;letter-spacing:.1em;color:rgba(34,211,238,.4);line-height:1.7;}
+.card-tag{align-self:flex-start;font-size:7px;letter-spacing:.2em;padding:3px 8px;border-radius:3px;border:1px solid rgba(34,211,238,.2);color:rgba(34,211,238,.5);}
+.card-tag.live{border-color:rgba(16,185,129,.3);color:#10b981;}
+.footer{font-size:8px;letter-spacing:.2em;color:rgba(255,255,255,.12);}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(34,211,238,.006) 2px,rgba(34,211,238,.006) 3px);pointer-events:none;z-index:5;}
+</style>
 </head>
 <body>
-  <p>Redirecting to <a href="sentinel-v5.html">SENTINEL</a>…</p>
+<canvas id="bg"></canvas>
+<div class="wrap">
+  <div>
+    <div class="logo">SENTINEL</div>
+    <div class="sub">AKA IND Technologies · World Intelligence Platform</div>
+  </div>
+  <div class="divider"></div>
+  <div class="cards">
+    <a class="card" href="sentinel-v5.html">
+      <div class="card-icon">🖥</div>
+      <div class="card-title">INTEL DASHBOARD</div>
+      <div class="card-desc">7-tab analysis platform<br>AI analyst · TTS readout<br>Regional threat briefings</div>
+      <div class="card-tag live">LIVE ADS-B</div>
+    </a>
+    <a class="card" href="globe/">
+      <div class="card-icon">🌍</div>
+      <div class="card-title">LIVE GLOBE</div>
+      <div class="card-desc">3D satellite view<br>Aircraft · Vessels · Satellites<br>Drag · Zoom · Click to inspect</div>
+      <div class="card-tag live">LIVE TRACKING</div>
+    </a>
+  </div>
+  <div class="footer">OSINT UNCLASSIFIED · ALL SOURCES PUBLICLY AVAILABLE</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const c=document.getElementById('bg');
+const renderer=new THREE.WebGLRenderer({canvas:c,antialias:true,alpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.setClearColor(0x010509,1);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,.1,300);
+camera.position.set(0,0,2.8);
+scene.add(new THREE.AmbientLight(0x203040,.5));
+const sun=new THREE.DirectionalLight(0xfff4e0,1.6);sun.position.set(5,3,4);scene.add(sun);
+const sv=[];for(let i=0;i<7000;i++){const t=Math.random()*2*Math.PI,p=Math.acos(2*Math.random()-1),r=65+Math.random()*25;sv.push(r*Math.sin(p)*Math.cos(t),r*Math.cos(p),r*Math.sin(p)*Math.sin(t));}
+const sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.Float32BufferAttribute(sv,3));
+scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x8899bb,size:.022,transparent:true,opacity:.8})));
+const em=new THREE.MeshPhongMaterial({color:0x1a4478,specular:new THREE.Color(0x1a2d44),shininess:14});
+const earth=new THREE.Mesh(new THREE.SphereGeometry(1,96,96),em);scene.add(earth);
+const TL=new THREE.TextureLoader();
+TL.load('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',t=>{em.map=t;em.needsUpdate=true;});
+TL.load('https://unpkg.com/three-globe/example/img/earth-night.jpg',t=>{scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.001,64,64),new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:.25,blending:THREE.AdditiveBlending})));});
+const atm=new THREE.Mesh(new THREE.SphereGeometry(1.045,64,64),new THREE.MeshPhongMaterial({color:0x2255aa,transparent:true,opacity:.12,side:THREE.FrontSide,depthWrite:false,blending:THREE.AdditiveBlending}));scene.add(atm);
+let ry=0;
+(function loop(){requestAnimationFrame(loop);ry+=.0004;earth.rotation.y=ry;atm.rotation.y=ry;renderer.render(scene,camera);})();
+window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
+</script>
 </body>
 </html>
