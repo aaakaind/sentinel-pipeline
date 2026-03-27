@@ -27,6 +27,7 @@ import time
 import logging
 import argparse
 import csv
+import re
 import html as html_mod
 from datetime import datetime, timezone, timedelta
 from io import StringIO
@@ -874,7 +875,13 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
 # ─────────────────────────────────────────────
 
 def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Optional[str]:
-    """Create a new Notion page with the daily brief content."""
+    """Create a new Notion page with the daily brief content.
+
+    Converts the generated markdown to structured Notion blocks (headings,
+    callouts, tables, toggles, etc.) and posts them via the Notion API.
+    When the brief exceeds 100 blocks, remaining blocks are appended in
+    subsequent batches using the Block children endpoint.
+    """
     if not NOTION_API_KEY and not dry_run:
         log.warning("NOTION_API_KEY not set — skipping Notion post. Set the repository secret to enable.")
         return None
@@ -885,11 +892,13 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     d = datetime.strptime(brief_date, "%Y-%m-%d")
     title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
 
+    blocks = _md_to_notion_blocks(content)
+
     if dry_run:
         log.info("── DRY RUN ── Notion page would be created:")
         log.info(f"Title: {title}")
         log.info(f"Parent ID: {NOTION_PARENT_ID or '(not set)'}")
-        log.info(f"Content length: {len(content)} chars")
+        log.info(f"Content length: {len(content)} chars, Notion blocks: {len(blocks)}")
         print("\n" + "="*60)
         print(title)
         print("="*60)
@@ -906,51 +915,360 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         "properties": {
             "title": [{"text": {"content": title}}]
         },
-        "children": _md_to_notion_blocks(content)
+        "children": blocks[:100],  # Notion limit: 100 children per request
     }
 
-    log.info(f"Posting to Notion: '{title}'...")
+    log.info(f"Posting to Notion: '{title}' ({len(blocks)} blocks)...")
     try:
         r = requests.post("https://api.notion.com/v1/pages",
                           headers=headers, json=payload, timeout=30)
     except requests.RequestException as e:
         log.error(f"Notion connection error: {e}")
         return None
-    if r.status_code == 200:
-        page = r.json()
-        url  = page.get("url", "")
-        log.info(f"✅ Created: {url}")
-        return url
-    else:
+
+    if r.status_code != 200:
         log.error(f"Notion API error {r.status_code}: {r.text[:500]}")
         return None
 
+    page = r.json()
+    page_id = page.get("id", "")
+    url = page.get("url", "")
+    log.info(f"✅ Created: {url}")
+
+    # Append remaining blocks in batches of 100
+    remaining = blocks[100:]
+    batch_num = 1
+    while remaining:
+        batch = remaining[:100]
+        remaining = remaining[100:]
+        try:
+            r2 = requests.patch(
+                f"https://api.notion.com/v1/blocks/{page_id}/children",
+                headers=headers, json={"children": batch}, timeout=30)
+            if r2.ok:
+                log.info(f"  Appended block batch {batch_num} ({len(batch)} blocks)")
+            else:
+                log.warning(f"  Failed to append batch {batch_num}: HTTP {r2.status_code}")
+                break
+        except requests.RequestException as e:
+            log.warning(f"  Error appending batch {batch_num}: {e}")
+            break
+        batch_num += 1
+
+    return url
+
+
+_NOTION_COLOR_MAP = {
+    "gray_bg": "gray_background",
+    "red_bg": "red_background",
+    "orange_bg": "orange_background",
+    "yellow_bg": "yellow_background",
+    "green_bg": "green_background",
+    "blue_bg": "blue_background",
+    "purple_bg": "purple_background",
+    "pink_bg": "pink_background",
+    "brown_bg": "brown_background",
+}
+
+
+def _notion_color(raw: str) -> str:
+    """Map brief color names (e.g. 'gray_bg') to Notion API values."""
+    return _NOTION_COLOR_MAP.get(raw, "default")
+
+
+def _parse_rich_text(text: str) -> list:
+    """Convert inline markdown to a Notion rich_text array.
+
+    Handles **bold**, *italic*, [text](url), and ``code``.
+    """
+    if not text:
+        return [{"type": "text", "text": {"content": ""}}]
+
+    segments: list = []
+    # Order: **bold** before *italic* to avoid conflicts
+    pattern = re.compile(
+        r'\*\*(.+?)\*\*'
+        r'|\*(.+?)\*'
+        r'|\[([^\]]+)\]\(([^)]+)\)'
+        r'|`([^`]+)`'
+    )
+
+    pos = 0
+    for m in pattern.finditer(text):
+        if m.start() > pos:
+            segments.append({"type": "text", "text": {"content": text[pos:m.start()]}})
+
+        if m.group(1) is not None:
+            segments.append({"type": "text", "text": {"content": m.group(1)},
+                             "annotations": {"bold": True}})
+        elif m.group(2) is not None:
+            segments.append({"type": "text", "text": {"content": m.group(2)},
+                             "annotations": {"italic": True}})
+        elif m.group(3) is not None:
+            segments.append({"type": "text",
+                             "text": {"content": m.group(3), "link": {"url": m.group(4)}}})
+        elif m.group(5) is not None:
+            segments.append({"type": "text", "text": {"content": m.group(5)},
+                             "annotations": {"code": True}})
+        pos = m.end()
+
+    if pos < len(text):
+        segments.append({"type": "text", "text": {"content": text[pos:]}})
+
+    return segments or [{"type": "text", "text": {"content": text}}]
+
+
+def _parse_callout_block(lines: list, start: int) -> tuple:
+    """Parse a ``::: callout {icon=... color=...}`` … ``:::`` block."""
+    header = lines[start].strip()
+    icon_m = re.search(r'icon="([^"]*)"', header)
+    color_m = re.search(r'color="([^"]*)"', header)
+    icon = icon_m.group(1) if icon_m else "💡"
+    color = _notion_color(color_m.group(1)) if color_m else "default"
+
+    i = start + 1
+    content_lines: list[str] = []
+    while i < len(lines):
+        if lines[i].strip() == ':::':
+            i += 1
+            break
+        content_lines.append(lines[i].strip())
+        i += 1
+
+    main_text = ""
+    children_texts: list[str] = []
+    for cl in content_lines:
+        if not main_text and cl:
+            main_text = cl
+        elif cl:
+            children_texts.append(cl)
+
+    block: dict = {
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "icon": {"type": "emoji", "emoji": icon},
+            "color": color,
+            "rich_text": _parse_rich_text(main_text),
+        }
+    }
+    if children_texts:
+        block["callout"]["children"] = [
+            {"object": "block", "type": "paragraph",
+             "paragraph": {"rich_text": _parse_rich_text(ct)}}
+            for ct in children_texts
+        ]
+    return block, i
+
+
+def _parse_table_block(lines: list, start: int) -> tuple:
+    """Parse an HTML-style ``<table>`` block into Notion table + table_row."""
+    header_line = lines[start].strip()
+    has_header = 'header-row="true"' in header_line
+
+    i = start + 1
+    rows: list[list[str]] = []
+    while i < len(lines):
+        if lines[i].strip() == '</table>':
+            i += 1
+            break
+        row_line = lines[i].strip()
+        if '<td>' in row_line:
+            cells = re.findall(r'<td>(.*?)</td>', row_line)
+            if cells:
+                rows.append(cells)
+        i += 1
+
+    if not rows:
+        return ({"object": "block", "type": "paragraph",
+                 "paragraph": {"rich_text": _parse_rich_text("(empty table)")}}, i)
+
+    table_width = max(len(r) for r in rows)
+    for r in rows:
+        while len(r) < table_width:
+            r.append("")
+
+    table_rows = []
+    for row in rows:
+        cells = [_parse_rich_text(cell) for cell in row]
+        table_rows.append({"type": "table_row", "table_row": {"cells": cells}})
+
+    block = {
+        "object": "block",
+        "type": "table",
+        "table": {
+            "table_width": table_width,
+            "has_column_header": has_header and len(rows) > 1,
+            "has_row_header": False,
+            "children": table_rows,
+        }
+    }
+    return block, i
+
+
+def _parse_toggle_block(lines: list, start: int) -> tuple:
+    """Parse ``<details>/<summary>`` into a Notion toggle block."""
+    i = start + 1
+    summary_text = ""
+    content_lines: list[str] = []
+
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped == '</details>':
+            i += 1
+            break
+        if stripped.startswith('<summary>'):
+            m = re.match(r'<summary>(.*?)</summary>', stripped)
+            if m:
+                summary_text = m.group(1)
+        elif stripped:
+            content_lines.append(stripped)
+        i += 1
+
+    children: list[dict] = []
+    for cl in content_lines:
+        if cl.startswith('- '):
+            children.append({
+                "object": "block", "type": "bulleted_list_item",
+                "bulleted_list_item": {"rich_text": _parse_rich_text(cl[2:])}
+            })
+        elif re.match(r'^\d+\.\s', cl):
+            m = re.match(r'^\d+\.\s+(.*)', cl)
+            children.append({
+                "object": "block", "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": _parse_rich_text(m.group(1))}
+            })
+        else:
+            children.append({
+                "object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": _parse_rich_text(cl)}
+            })
+
+    if not children:
+        children = [{"object": "block", "type": "paragraph",
+                     "paragraph": {"rich_text": [{"type": "text",
+                                                  "text": {"content": " "}}]}}]
+
+    block = {
+        "object": "block",
+        "type": "toggle",
+        "toggle": {
+            "rich_text": _parse_rich_text(summary_text),
+            "children": children,
+        }
+    }
+    return block, i
+
 
 def _md_to_notion_blocks(md: str) -> list:
+    """Convert SENTINEL brief markdown to Notion API blocks.
+
+    Handles headings, callouts, tables, toggles, dividers,
+    block-quotes, bulleted/numbered lists, and paragraphs.
+    Inline: **bold**, *italic*, [links](url), ``code``.
     """
-    Lightweight converter: passes content as a single rich text block.
-    For production, swap in a full Notion Markdown parser.
-    This approach uses Notion's paragraph blocks with the raw markdown
-    which displays cleanly for the structured content we generate.
-    """
-    blocks = []
-    paragraphs = md.split("\n\n")
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
+    blocks: list[dict] = []
+    lines = md.split("\n")
+    i = 0
+
+    while i < len(lines):
+        stripped = lines[i].strip()
+
+        # ── Empty line — skip
+        if not stripped:
+            i += 1
             continue
-        # Use paragraph block with text content
-        # Notion API ignores most markdown in paragraph rich_text,
-        # but handles heading blocks and callouts natively via the MCP tool.
-        # For GitHub Actions pipeline, we use the MCP Notion integration instead.
+
+        # ── Callout block  ::: callout … :::
+        if stripped.startswith('::: callout'):
+            block, i = _parse_callout_block(lines, i)
+            blocks.append(block)
+            continue
+
+        # ── Table block  <table …> … </table>
+        if stripped.startswith('<table'):
+            block, i = _parse_table_block(lines, i)
+            blocks.append(block)
+            continue
+
+        # ── Toggle / details block
+        if stripped == '<details>':
+            block, i = _parse_toggle_block(lines, i)
+            blocks.append(block)
+            continue
+
+        # ── Divider
+        if stripped == '---':
+            blocks.append({"object": "block", "type": "divider", "divider": {}})
+            i += 1
+            continue
+
+        # ── Heading 1  (check ## / ### first to disambiguate)
+        if stripped.startswith('# ') and not stripped.startswith('## '):
+            blocks.append({
+                "object": "block", "type": "heading_1",
+                "heading_1": {"rich_text": _parse_rich_text(stripped[2:])}
+            })
+            i += 1
+            continue
+
+        # ── Heading 2
+        if stripped.startswith('## ') and not stripped.startswith('### '):
+            blocks.append({
+                "object": "block", "type": "heading_2",
+                "heading_2": {"rich_text": _parse_rich_text(stripped[3:])}
+            })
+            i += 1
+            continue
+
+        # ── Heading 3
+        if stripped.startswith('### '):
+            blocks.append({
+                "object": "block", "type": "heading_3",
+                "heading_3": {"rich_text": _parse_rich_text(stripped[4:])}
+            })
+            i += 1
+            continue
+
+        # ── Block quote — merge consecutive '>' lines
+        if stripped.startswith('> '):
+            quote_parts: list[str] = []
+            while i < len(lines) and lines[i].strip().startswith('> '):
+                quote_parts.append(lines[i].strip()[2:])
+                i += 1
+            blocks.append({
+                "object": "block", "type": "quote",
+                "quote": {"rich_text": _parse_rich_text("\n".join(quote_parts))}
+            })
+            continue
+
+        # ── Bulleted list item
+        if stripped.startswith('- '):
+            blocks.append({
+                "object": "block", "type": "bulleted_list_item",
+                "bulleted_list_item": {"rich_text": _parse_rich_text(stripped[2:])}
+            })
+            i += 1
+            continue
+
+        # ── Numbered list item
+        num_m = re.match(r'^(\d+)\.\s+(.*)', stripped)
+        if num_m:
+            blocks.append({
+                "object": "block", "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": _parse_rich_text(num_m.group(2))}
+            })
+            i += 1
+            continue
+
+        # ── Default: paragraph
         blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": para[:2000]}}]
-            }
+            "object": "block", "type": "paragraph",
+            "paragraph": {"rich_text": _parse_rich_text(stripped)}
         })
-    return blocks[:100]  # Notion block limit per request
+        i += 1
+
+    return blocks
 
 
 # ─────────────────────────────────────────────
