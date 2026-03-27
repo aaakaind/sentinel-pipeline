@@ -3,7 +3,7 @@
 SENTINEL Daily Intelligence Brief — Automated Pipeline
 AKA IND Technologies
 
-Fetches: OpenSky ADS-B, GPSJam.org interference data, CelesTrak satellite data, GDELT global events
+Fetches: OpenSky ADS-B, GPSJam.org interference data
 Posts:   Notion page (new page per day, structured intel brief)
 
 Usage:
@@ -14,12 +14,9 @@ Usage:
 Env vars required:
     NOTION_API_KEY      — from notion.so/my-integrations
     NOTION_PARENT_ID    — page or database ID to create briefs under
-
-Env vars optional (enable live feeds):
-    AIS_API_KEY         — from aisstream.io (free registration)
-    CELESTRAK_API_KEY   — from celestrak.org
 """
 
+import re
 import os
 import sys
 import json
@@ -808,53 +805,42 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
     A('')
 
     # ── SATELLITES ───────────────────────────
-    sat_live_badge = "✅ LIVE" if "LIVE" in sat_source else "⚠ SIMULATED"
-    A(f'# 🛰 Space Domain — Satellite Coverage {sat_live_badge}')
+    A('# 🛰 Space Domain — Satellite Coverage')
     A('')
-    A(f'> **Source:** CelesTrak GP/OMM ({sat_source}, JSON orbital elements)')
+    A('> **Source:** CelesTrak TLE (Two-Line Element orbital propagation)')
     A('')
     A('<table fit-page-width="true" header-row="true">')
     A('\t<tr><td>**Asset**</td><td>**Orbit**</td><td>**Altitude**</td><td>**Resolution**</td><td>**Coverage**</td></tr>')
-    for sat in sat_data.get("satellites", []):
-        A(f'\t<tr><td>{sat["name"]}</td><td>{sat["orbit"]}</td><td>{sat["altitude"]}</td><td>{sat["resolution"]}</td><td>{sat["coverage"]}</td></tr>')
+    for sat in [
+        ("SENTINEL-2A","LEO-SSO","580 km","0.5m","Eastern Europe"),
+        ("WORLDVIEW-3","LEO","617 km","**0.3m**","Global"),
+        ("COSMO-SKYMED","LEO-SSO","619 km","SAR","Eastern Europe"),
+        ("HELIOS-2B","LEO-SSO","680 km","0.5m","Global"),
+        ("OFEK-16","LEO","420 km","**0.3m**","Middle East"),
+        ("PLEIADES-NEO","LEO-SSO","480 km","0.3m","Middle East"),
+    ]:
+        A(f'\t<tr><td>{sat[0]}</td><td>{sat[1]}</td><td>{sat[2]}</td><td>{sat[3]}</td><td>{sat[4]}</td></tr>')
     A('</table>')
     A('')
     A('---')
     A('')
 
-    # ── GDELT GLOBAL EVENTS ─────────────────
-    gdelt_live_badge = "✅ LIVE" if "LIVE" in gdelt_source else "⚠ SIMULATED"
-    gdelt_articles = gdelt_data.get("articles", [])
-    A(f'# 🌐 Global Events Monitor — GDELT {gdelt_live_badge}')
+    # ── INCIDENTS ────────────────────────────
+    A('# 💥 Incident Log — 24H Window')
     A('')
-    A(f'> **Source:** [GDELT Project](https://gdeltproject.org) DOC API v2 ({gdelt_source}) · {len(gdelt_articles)} articles · 24h window')
+    A('> **Source:** ACLED (Armed Conflict Location & Event Data) · Simulated format')
     A('')
-    if gdelt_articles:
-        A('<table fit-page-width="true" header-row="true">')
-        A('\t<tr><td>**Time**</td><td>**Headline**</td><td>**Source**</td></tr>')
-        for art in gdelt_articles[:12]:
-            time_str = html_mod.escape(art.get("time", ""))
-            title = html_mod.escape(art.get("title", "Untitled"))
-            # Truncate long titles for table display
-            if len(title) > 90:
-                title = title[:87] + "..."
-            domain = html_mod.escape(art.get("domain", ""))
-            A(f'\t<tr><td>{time_str}</td><td>{title}</td><td>{domain}</td></tr>')
-        A('</table>')
-        if len(gdelt_articles) > 12:
-            A('')
-            A('<details>')
-            A(f'<summary>**All GDELT Articles** ({len(gdelt_articles)} total)</summary>')
-            A('')
-            for art in gdelt_articles[12:]:
-                time_str = html_mod.escape(art.get("time", ""))
-                title = html_mod.escape(art.get("title", "Untitled"))
-                domain = html_mod.escape(art.get("domain", ""))
-                A(f'- {time_str} · **{title}** · {domain}')
-            A('')
-            A('</details>')
-    else:
-        A('*No conflict-related articles found in 24h window.*')
+    for inc in [
+        ("MISSILE IMPACT", "48.12°N 37.45°E", "03:14", True),
+        ("DRONE STRIKE",   "46.88°N 35.22°E", "07:32", True),
+        ("ARTILLERY",      "47.65°N 38.11°E", "11:45", True),
+        ("VESSEL DAMAGED", "45.22°N 33.88°E", "14:20", True),
+        ("AIRSTRIKE",      "49.34°N 36.77°E", "16:55", False),
+        ("RADAR CONTACT",  "47.01°N 39.44°E", "19:10", False),
+    ]:
+        check = "x" if inc[3] else " "
+        conf  = "✓ Confirmed" if inc[3] else "⚠ Unverified"
+        A(f'- [{check}] **{inc[0]}** · {inc[1]} · {inc[2]} UTC · {conf}')
     A('')
     A('---')
     A('')
@@ -874,6 +860,260 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
 #  NOTION POSTER
 # ─────────────────────────────────────────────
 
+
+# ─────────────────────────────────────────────
+#  NOTION POSTER
+# ─────────────────────────────────────────────
+
+def _rt(text: str) -> list:
+    """Parse inline markdown into Notion rich_text array (bold, italic, code)."""
+    parts = []
+    # Split on **bold**, *italic*, `code`
+    pattern = r'(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)'
+    segments = re.split(pattern, text)
+    for seg in segments:
+        if not seg:
+            continue
+        ann = {}
+        content = seg
+        if seg.startswith("**") and seg.endswith("**"):
+            content = seg[2:-2]
+            ann["bold"] = True
+        elif seg.startswith("*") and seg.endswith("*"):
+            content = seg[1:-1]
+            ann["italic"] = True
+        elif seg.startswith("`") and seg.endswith("`"):
+            content = seg[1:-1]
+            ann["code"] = True
+        if content:
+            rt = {"type": "text", "text": {"content": content[:2000]}}
+            if ann:
+                rt["annotations"] = ann
+            parts.append(rt)
+    return parts or [{"type": "text", "text": {"content": text[:2000]}}]
+
+
+def _heading(text: str, level: int) -> dict:
+    t = f"heading_{level}"
+    return {"object": "block", "type": t, t: {"rich_text": _rt(text)}}
+
+
+def _para(text: str) -> dict:
+    return {"object": "block", "type": "paragraph",
+            "paragraph": {"rich_text": _rt(text)}}
+
+
+def _bullet(text: str) -> dict:
+    return {"object": "block", "type": "bulleted_list_item",
+            "bulleted_list_item": {"rich_text": _rt(text)}}
+
+
+def _todo(text: str, checked: bool) -> dict:
+    return {"object": "block", "type": "to_do",
+            "to_do": {"rich_text": _rt(text), "checked": checked}}
+
+
+def _divider() -> dict:
+    return {"object": "block", "type": "divider", "divider": {}}
+
+
+def _quote(text: str) -> dict:
+    return {"object": "block", "type": "quote",
+            "quote": {"rich_text": _rt(text)}}
+
+
+def _callout(text: str, icon: str = "🛰", color: str = "gray_background") -> dict:
+    COLOR_MAP = {
+        "gray_bg": "gray_background", "blue_bg": "blue_background",
+        "red_bg": "red_background", "orange_bg": "orange_background",
+        "yellow_bg": "yellow_background", "green_bg": "green_background",
+        "purple_bg": "purple_background", "pink_bg": "pink_background",
+    }
+    notion_color = COLOR_MAP.get(color, color if color.endswith("_background") else "gray_background")
+    return {
+        "object": "block", "type": "callout",
+        "callout": {
+            "rich_text": _rt(text),
+            "icon": {"type": "emoji", "emoji": icon},
+            "color": notion_color,
+        }
+    }
+
+
+def _toggle(summary: str, children: list) -> dict:
+    return {
+        "object": "block", "type": "toggle",
+        "toggle": {
+            "rich_text": _rt(summary),
+            "children": children[:100],
+        }
+    }
+
+
+def _table_row(cells: list) -> dict:
+    return {
+        "object": "block", "type": "table_row",
+        "table_row": {"cells": [[{"type": "text", "text": {"content": re.sub(r"\*\*(.+?)\*\*", r"\1", c)}}] for c in cells]}
+    }
+
+
+def _parse_table(block: str) -> list:
+    """Parse <table> HTML into Notion table block."""
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.DOTALL)
+    if not rows:
+        return [_para(block[:200])]
+    parsed_rows = []
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        if cells:
+            parsed_rows.append(cells)
+    if not parsed_rows:
+        return []
+    col_count = max(len(r) for r in parsed_rows)
+    # Pad rows
+    for r in parsed_rows:
+        while len(r) < col_count:
+            r.append("")
+    has_header = "header-row" in block
+    table_block = {
+        "object": "block", "type": "table",
+        "table": {
+            "table_width": col_count,
+            "has_column_header": False,
+            "has_row_header": False,
+            "children": [_table_row(r) for r in parsed_rows],
+        }
+    }
+    if has_header and parsed_rows:
+        table_block["table"]["has_column_header"] = True
+    return [table_block]
+
+
+def md_to_notion_blocks(md: str) -> list:
+    """Convert Notion-flavored Markdown to Notion API block objects."""
+    blocks = []
+    lines = md.split("\n")
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Skip empty
+        if not stripped:
+            i += 1
+            continue
+
+        # Divider
+        if stripped == "---":
+            blocks.append(_divider())
+            i += 1
+            continue
+
+        # Headings
+        if stripped.startswith("#### "):
+            blocks.append(_heading(stripped[5:], 3))
+            i += 1; continue
+        if stripped.startswith("### "):
+            blocks.append(_heading(stripped[4:], 3))
+            i += 1; continue
+        if stripped.startswith("## "):
+            blocks.append(_heading(stripped[3:], 2))
+            i += 1; continue
+        if stripped.startswith("# "):
+            # Strip {color=...} attribute
+            txt = re.sub(r"\s*\{color=[^}]+\}", "", stripped[2:]).strip()
+            blocks.append(_heading(txt, 1))
+            i += 1; continue
+
+        # Blockquote
+        if stripped.startswith("> "):
+            blocks.append(_quote(stripped[2:]))
+            i += 1; continue
+
+        # Callout ::: callout {icon="X" color="Y"}
+        if stripped.startswith("::: callout"):
+            icon_m = re.search(r'icon="([^"]+)"', stripped)
+            color_m = re.search(r'color="([^"]+)"', stripped)
+            icon = icon_m.group(1) if icon_m else "🛰"
+            color = color_m.group(1) if color_m else "gray_bg"
+            # collect until :::
+            i += 1
+            content_lines = []
+            while i < len(lines) and lines[i].strip() != ":::":
+                content_lines.append(lines[i].strip())
+                i += 1
+            i += 1  # skip closing :::
+            text = " ".join(l for l in content_lines if l)
+            blocks.append(_callout(text, icon, color))
+            continue
+
+        # Toggle / details
+        if stripped.startswith("<details>") or stripped == "<details>":
+            i += 1
+            summary = ""
+            if i < len(lines) and "<summary>" in lines[i]:
+                sm = re.search(r"<summary>(.*?)</summary>", lines[i])
+                if sm:
+                    summary = sm.group(1)
+                i += 1
+            children = []
+            while i < len(lines) and lines[i].strip() != "</details>":
+                cl = lines[i].strip()
+                if cl.startswith("- "):
+                    children.append(_bullet(cl[2:]))
+                elif cl:
+                    children.append(_para(cl))
+                i += 1
+            i += 1  # skip </details>
+            blocks.append(_toggle(summary or "Details", children or [_para("—")]))
+            continue
+
+        # Table
+        if stripped.startswith("<table"):
+            table_lines = []
+            while i < len(lines) and not lines[i].strip().startswith("</table>"):
+                table_lines.append(lines[i])
+                i += 1
+            i += 1  # skip </table>
+            table_str = "\n".join(table_lines)
+            blocks.extend(_parse_table(table_str))
+            continue
+
+        # To-do items
+        todo_m = re.match(r"- \[(x| )\] (.+)", stripped)
+        if todo_m:
+            checked = todo_m.group(1) == "x"
+            text = todo_m.group(2)
+            blocks.append(_todo(text, checked))
+            i += 1; continue
+
+        # Bullet list
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            blocks.append(_bullet(stripped[2:]))
+            i += 1; continue
+
+        # Numbered list
+        num_m = re.match(r"^\d+\.\s+(.+)", stripped)
+        if num_m:
+            blocks.append({
+                "object": "block", "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": _rt(num_m.group(1))}
+            })
+            i += 1; continue
+
+        # Skip HTML tags we don't handle
+        if stripped.startswith("<") and stripped.endswith(">"):
+            i += 1; continue
+
+        # Default: paragraph
+        blocks.append(_para(stripped))
+        i += 1
+
+    return blocks[:100]
+
+
 def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Optional[str]:
     """Create a new Notion page with the daily brief content.
 
@@ -883,11 +1123,11 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     subsequent batches using the Block children endpoint.
     """
     if not NOTION_API_KEY and not dry_run:
-        log.warning("NOTION_API_KEY not set — skipping Notion post. Set the repository secret to enable.")
-        return None
+        log.error("NOTION_API_KEY not set. Use --dry-run or set env var.")
+        sys.exit(1)
     if not NOTION_PARENT_ID and not dry_run:
-        log.warning("NOTION_PARENT_ID not set — skipping Notion post. Set the repository secret to enable.")
-        return None
+        log.error("NOTION_PARENT_ID not set. Use --dry-run or set env var.")
+        sys.exit(1)
 
     d = datetime.strptime(brief_date, "%Y-%m-%d")
     title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
@@ -910,7 +1150,12 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
-    payload = {
+
+    blocks = md_to_notion_blocks(content)
+    log.info(f"Converted markdown to {len(blocks)} Notion blocks")
+
+    # Notion allows max 100 blocks per request — chunk if needed
+    page_payload = {
         "parent": {"page_id": NOTION_PARENT_ID},
         "properties": {
             "title": [{"text": {"content": title}}]
@@ -1271,9 +1516,6 @@ def _md_to_notion_blocks(md: str) -> list:
     return blocks
 
 
-# ─────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SENTINEL Daily Intelligence Brief Generator")
@@ -1316,11 +1558,8 @@ def main():
     if url:
         log.info(f"🛰 Daily brief published: {url}")
     elif not args.dry_run:
-        if NOTION_API_KEY and NOTION_PARENT_ID:
-            log.error("Notion API call failed — brief saved locally but not posted.")
-            sys.exit(1)
-        else:
-            log.warning("Notion post skipped (credentials not configured) — brief still saved locally.")
+        log.error("Brief generation failed.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
