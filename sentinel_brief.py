@@ -979,12 +979,12 @@ def _notion_color(raw: str) -> str:
 def _parse_rich_text(text: str) -> list:
     """Convert inline markdown to a Notion rich_text array.
 
-    Handles **bold**, *italic*, [text](url), and ``code``.
+    Handles **bold**, *italic*, [text](url), and `code`.
     """
     if not text:
         return [{"type": "text", "text": {"content": ""}}]
 
-    segments: list = []
+    segments = []
     # Order: **bold** before *italic* to avoid conflicts
     pattern = re.compile(
         r'\*\*(.+?)\*\*'
@@ -1027,7 +1027,7 @@ def _parse_callout_block(lines: list, start: int) -> tuple:
     color = _notion_color(color_m.group(1)) if color_m else "default"
 
     i = start + 1
-    content_lines: list[str] = []
+    content_lines = []
     while i < len(lines):
         if lines[i].strip() == ':::':
             i += 1
@@ -1036,14 +1036,14 @@ def _parse_callout_block(lines: list, start: int) -> tuple:
         i += 1
 
     main_text = ""
-    children_texts: list[str] = []
+    children_texts = []
     for cl in content_lines:
         if not main_text and cl:
             main_text = cl
         elif cl:
             children_texts.append(cl)
 
-    block: dict = {
+    block = {
         "object": "block",
         "type": "callout",
         "callout": {
@@ -1067,7 +1067,7 @@ def _parse_table_block(lines: list, start: int) -> tuple:
     has_header = 'header-row="true"' in header_line
 
     i = start + 1
-    rows: list[list[str]] = []
+    rows = []
     while i < len(lines):
         if lines[i].strip() == '</table>':
             i += 1
@@ -1110,7 +1110,7 @@ def _parse_toggle_block(lines: list, start: int) -> tuple:
     """Parse ``<details>/<summary>`` into a Notion toggle block."""
     i = start + 1
     summary_text = ""
-    content_lines: list[str] = []
+    content_lines = []
 
     while i < len(lines):
         stripped = lines[i].strip()
@@ -1125,7 +1125,7 @@ def _parse_toggle_block(lines: list, start: int) -> tuple:
             content_lines.append(stripped)
         i += 1
 
-    children: list[dict] = []
+    children = []
     for cl in content_lines:
         if cl.startswith('- '):
             children.append({
@@ -1167,7 +1167,7 @@ def _md_to_notion_blocks(md: str) -> list:
     block-quotes, bulleted/numbered lists, and paragraphs.
     Inline: **bold**, *italic*, [links](url), ``code``.
     """
-    blocks: list[dict] = []
+    blocks = []
     lines = md.split("\n")
     i = 0
 
@@ -1232,7 +1232,7 @@ def _md_to_notion_blocks(md: str) -> list:
 
         # ── Block quote — merge consecutive '>' lines
         if stripped.startswith('> '):
-            quote_parts: list[str] = []
+            quote_parts = []
             while i < len(lines) and lines[i].strip().startswith('> '):
                 quote_parts.append(lines[i].strip()[2:])
                 i += 1
