@@ -46,8 +46,10 @@ jobs:
 
       - name: Run SENTINEL brief pipeline
         env:
-          NOTION_API_KEY:   ${{ secrets.NOTION_API_KEY }}
-          NOTION_PARENT_ID: ${{ secrets.NOTION_PARENT_ID }}
+          NOTION_API_KEY:       ${{ secrets.NOTION_API_KEY }}
+          NOTION_PARENT_ID:     ${{ secrets.NOTION_PARENT_ID }}
+          OPENSKY_CLIENT_ID:    ${{ secrets.OPENSKY_CLIENT_ID }}
+          OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
         run: |
           DATE_FLAG=""
           DRY_FLAG=""
@@ -72,4 +74,15 @@ jobs:
       - name: Notify on failure
         if: failure()
         run: |
-          echo "::error::SENTINEL brief pipeline failed. Check OpenSky/GPSJam connectivity and Notion API key."
+          echo "::error::SENTINEL brief pipeline failed."
+          echo "::error::Check: (1) Notion API key validity (2) OpenSky/GPSJam connectivity (3) Notion parent page permissions"
+          echo "::error::Run manually with dry_run=true to isolate the issue."
+
+      - name: Keep repo active for scheduled runs
+        if: github.event_name == 'schedule'
+        run: |
+          echo "Scheduled run completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> data/heartbeat.log
+          git config user.name "sentinel-bot"
+          git config user.email "sentinel-bot@users.noreply.github.com"
+          git add data/heartbeat.log || true
+          git diff --staged --quiet || git commit -m "chore: heartbeat $(date -u +%Y-%m-%d)" && git push || true
