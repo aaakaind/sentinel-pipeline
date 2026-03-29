@@ -1,0 +1,341 @@
+{
+  "aircraft": {
+    "raw": [],
+    "aircraft": [
+      {
+        "callsign": "UAF342",
+        "label": "RC-135V RIVET JOINT",
+        "type": "isr",
+        "lat": 39.4667,
+        "lng": 38.8295,
+        "alt_ft": 37463,
+        "spd_kts": 416,
+        "heading": 86,
+        "squawk": "1192",
+        "source": "SIM"
+      },
+      {
+        "callsign": "NATO456",
+        "label": "E-3 AWACS",
+        "type": "military",
+        "lat": 28.0417,
+        "lng": 42.0577,
+        "alt_ft": 31794,
+        "spd_kts": 610,
+        "heading": 290,
+        "squawk": "5599",
+        "source": "SIM"
+      },
+      {
+        "callsign": "RUF789",
+        "label": "Su-27 FLANKER",
+        "type": "military",
+        "lat": 34.7035,
+        "lng": 27.5977,
+        "alt_ft": 37281,
+        "spd_kts": 392,
+        "heading": 102,
+        "squawk": "3218",
+        "source": "SIM"
+      },
+      {
+        "callsign": "USAF101",
+        "label": "F-16 FALCON",
+        "type": "military",
+        "lat": 52.2268,
+        "lng": 22.2711,
+        "alt_ft": 16613,
+        "spd_kts": 529,
+        "heading": 170,
+        "squawk": "1196",
+        "source": "SIM"
+      },
+      {
+        "callsign": "USN203",
+        "label": "P-8A POSEIDON",
+        "type": "isr",
+        "lat": 28.186,
+        "lng": 35.5886,
+        "alt_ft": 15727,
+        "spd_kts": 770,
+        "heading": 81,
+        "squawk": "4639",
+        "source": "SIM"
+      },
+      {
+        "callsign": "RAF512",
+        "label": "TORNADO GR4",
+        "type": "military",
+        "lat": 34.4179,
+        "lng": 27.5147,
+        "alt_ft": 20301,
+        "spd_kts": 492,
+        "heading": 208,
+        "squawk": "3669",
+        "source": "SIM"
+      },
+      {
+        "callsign": "USAF884",
+        "label": "C-17 GLOBEMASTER",
+        "type": "military",
+        "lat": 53.5708,
+        "lng": 22.0105,
+        "alt_ft": 35499,
+        "spd_kts": 688,
+        "heading": 280,
+        "squawk": "1135",
+        "source": "SIM"
+      },
+      {
+        "callsign": "UAF099",
+        "label": "RQ-4B GLOBAL HAWK",
+        "type": "isr",
+        "lat": 54.2774,
+        "lng": 41.7328,
+        "alt_ft": 33184,
+        "spd_kts": 857,
+        "heading": 186,
+        "squawk": "5495",
+        "source": "SIM"
+      }
+    ],
+    "military": [
+      {
+        "callsign": "NATO456",
+        "label": "E-3 AWACS",
+        "type": "military",
+        "lat": 28.0417,
+        "lng": 42.0577,
+        "alt_ft": 31794,
+        "spd_kts": 610,
+        "heading": 290,
+        "squawk": "5599",
+        "source": "SIM"
+      },
+      {
+        "callsign": "RUF789",
+        "label": "Su-27 FLANKER",
+        "type": "military",
+        "lat": 34.7035,
+        "lng": 27.5977,
+        "alt_ft": 37281,
+        "spd_kts": 392,
+        "heading": 102,
+        "squawk": "3218",
+        "source": "SIM"
+      },
+      {
+        "callsign": "USAF101",
+        "label": "F-16 FALCON",
+        "type": "military",
+        "lat": 52.2268,
+        "lng": 22.2711,
+        "alt_ft": 16613,
+        "spd_kts": 529,
+        "heading": 170,
+        "squawk": "1196",
+        "source": "SIM"
+      },
+      {
+        "callsign": "RAF512",
+        "label": "TORNADO GR4",
+        "type": "military",
+        "lat": 34.4179,
+        "lng": 27.5147,
+        "alt_ft": 20301,
+        "spd_kts": 492,
+        "heading": 208,
+        "squawk": "3669",
+        "source": "SIM"
+      },
+      {
+        "callsign": "USAF884",
+        "label": "C-17 GLOBEMASTER",
+        "type": "military",
+        "lat": 53.5708,
+        "lng": 22.0105,
+        "alt_ft": 35499,
+        "spd_kts": 688,
+        "heading": 280,
+        "squawk": "1135",
+        "source": "SIM"
+      }
+    ],
+    "isr": [
+      {
+        "callsign": "UAF342",
+        "label": "RC-135V RIVET JOINT",
+        "type": "isr",
+        "lat": 39.4667,
+        "lng": 38.8295,
+        "alt_ft": 37463,
+        "spd_kts": 416,
+        "heading": 86,
+        "squawk": "1192",
+        "source": "SIM"
+      },
+      {
+        "callsign": "USN203",
+        "label": "P-8A POSEIDON",
+        "type": "isr",
+        "lat": 28.186,
+        "lng": 35.5886,
+        "alt_ft": 15727,
+        "spd_kts": 770,
+        "heading": 81,
+        "squawk": "4639",
+        "source": "SIM"
+      },
+      {
+        "callsign": "UAF099",
+        "label": "RQ-4B GLOBAL HAWK",
+        "type": "isr",
+        "lat": 54.2774,
+        "lng": 41.7328,
+        "alt_ft": 33184,
+        "spd_kts": 857,
+        "heading": 186,
+        "squawk": "5495",
+        "source": "SIM"
+      }
+    ],
+    "emergency": [],
+    "commercial": [],
+    "source": "SIM"
+  },
+  "jamming": {
+    "zones": [
+      {
+        "lat": 47.02,
+        "lng": 35.18,
+        "radius_km": 120,
+        "intensity": 0.85,
+        "pct": 85,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 46.15,
+        "lng": 38.22,
+        "radius_km": 95,
+        "intensity": 0.78,
+        "pct": 78,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 54.7,
+        "lng": 20.5,
+        "radius_km": 110,
+        "intensity": 0.74,
+        "pct": 74,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 35.5,
+        "lng": 33.0,
+        "radius_km": 88,
+        "intensity": 0.71,
+        "pct": 71,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 44.0,
+        "lng": 42.0,
+        "radius_km": 75,
+        "intensity": 0.55,
+        "pct": 55,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 42.0,
+        "lng": 35.0,
+        "radius_km": 65,
+        "intensity": 0.48,
+        "pct": 48,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 49.0,
+        "lng": 27.0,
+        "radius_km": 80,
+        "intensity": 0.62,
+        "pct": 62,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 51.0,
+        "lng": 30.0,
+        "radius_km": 70,
+        "intensity": 0.58,
+        "pct": 58,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 45.0,
+        "lng": 33.0,
+        "radius_km": 90,
+        "intensity": 0.66,
+        "pct": 66,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 37.0,
+        "lng": 30.0,
+        "radius_km": 60,
+        "intensity": 0.42,
+        "pct": 42,
+        "source": "SIM",
+        "date": "simulated"
+      }
+    ],
+    "high_intensity": [
+      {
+        "lat": 47.02,
+        "lng": 35.18,
+        "radius_km": 120,
+        "intensity": 0.85,
+        "pct": 85,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 46.15,
+        "lng": 38.22,
+        "radius_km": 95,
+        "intensity": 0.78,
+        "pct": 78,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 54.7,
+        "lng": 20.5,
+        "radius_km": 110,
+        "intensity": 0.74,
+        "pct": 74,
+        "source": "SIM",
+        "date": "simulated"
+      },
+      {
+        "lat": 35.5,
+        "lng": 33.0,
+        "radius_km": 88,
+        "intensity": 0.71,
+        "pct": 71,
+        "source": "SIM",
+        "date": "simulated"
+      }
+    ],
+    "source": "SIM",
+    "date": "N/A"
+  },
+  "generated": "2026-03-29T18:18:03.393318+00:00"
+}
