@@ -73,7 +73,7 @@ def _http_session() -> requests.Session:
         total=3,
         backoff_factor=2,          # Delays: ~0s, 2s, 4s
         status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET", "POST"],
+        allowed_methods=["GET", "HEAD"],
     )
     s.mount("https://", HTTPAdapter(max_retries=retries))
     s.mount("http://", HTTPAdapter(max_retries=retries))
