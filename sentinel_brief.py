@@ -71,7 +71,7 @@ def _http_session() -> requests.Session:
     s = requests.Session()
     retries = Retry(
         total=3,
-        backoff_factor=2,          # 2s, 4s, 8s
+        backoff_factor=2,          # Delays: ~0s, 2s, 4s
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
     )
