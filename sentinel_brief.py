@@ -718,7 +718,6 @@ def _md_to_notion_blocks(md: str) -> list:
             color_m = re.search(r'color="(.+?)"', stripped)
             icon = icon_m.group(1) if icon_m else "💡"
             color_raw = color_m.group(1) if color_m else "gray_bg"
-            color = _color_map.get(color_raw, "gray_background")
             callout_lines = []
             i += 1
             while i < len(all_lines) and all_lines[i].strip() != ":::":
