@@ -97,8 +97,17 @@ def _opensky_token() -> Optional[str]:
         if token:
             log.info("OpenSky OAuth2 token obtained")
         return token
+    except requests.HTTPError as e:
+        if e.response and e.response.status_code in (401, 403):
+            log.error(f"OpenSky OAuth2 authentication failed: {e} — check credentials")
+        else:
+            log.warning(f"OpenSky OAuth2 HTTP error: {e} — falling back to anonymous")
+        return None
+    except (requests.Timeout, requests.ConnectionError) as e:
+        log.warning(f"OpenSky OAuth2 network error: {e} — falling back to anonymous")
+        return None
     except Exception as e:
-        log.warning(f"OpenSky OAuth2 failed: {e} — falling back to anonymous")
+        log.warning(f"OpenSky OAuth2 unexpected error: {e} — falling back to anonymous")
         return None
 
 
