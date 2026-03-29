@@ -673,9 +673,7 @@ def _md_to_notion_blocks(md: str) -> list:
                 "has_column_header": True,
                 "has_row_header": False,
                 "children": table_rows
-            }
-        }
-
+                rows.append(cells)
     def _parse_html_table(lines: list) -> dict:
         """Parse our HTML <table> rows into a Notion table."""
         rows = []
