@@ -85,4 +85,4 @@ jobs:
           git config user.name "sentinel-bot"
           git config user.email "sentinel-bot@users.noreply.github.com"
           git add data/heartbeat.log || true
-          git diff --staged --quiet || git commit -m "chore: heartbeat $(date -u +%Y-%m-%d)" && git push || true
+          git diff --staged --quiet || (git commit -m "chore: heartbeat $(date -u +%Y-%m-%d)" && git push) || true
