@@ -10,9 +10,11 @@ Every day at midnight UTC, this pipeline:
 
 1. **Hits OpenSky Network** — pulls live ADS-B state vectors (same feed as FlightRadar24)
 2. **Hits GPSJam.org** — pulls real GPS interference data (daily CSV)
-3. **Classifies everything** — military vs ISR vs commercial, emergency squawks, high-intensity jamming
-4. **Generates a structured brief** — Notion-flavored Markdown with tables, callouts, toggles
-5. **Posts a new dated page** to your Notion workspace automatically
+3. **Hits CelesTrak** — pulls live satellite orbital data (OMM/JSON format)
+4. **Hits GDELT Project** — pulls real-time global conflict/security event articles
+5. **Classifies everything** — military vs ISR vs commercial, emergency squawks, high-intensity jamming
+6. **Generates a structured brief** — Notion-flavored Markdown with tables, callouts, toggles
+7. **Posts a new dated page** to your Notion workspace automatically
 
 Falls back to simulation if either API is unavailable (rate-limited, down, etc.)
 
@@ -46,6 +48,9 @@ In your GitHub repo: **Settings → Secrets and variables → Actions → New re
 |---|---|
 | `NOTION_API_KEY` | `secret_xxxxxxxxxxxx` (from Step 2) |
 | `NOTION_PARENT_ID` | Page ID where briefs are created (from Step 2) |
+| `AIS_API_KEY` | WebSocket API key from [aisstream.io](https://aisstream.io) (free registration) |
+| `CELESTRAK_API_KEY` | API key from [celestrak.org](https://celestrak.org) |
+
 
 ### Step 4 — Push & activate
 
@@ -92,6 +97,9 @@ python sentinel_brief.py --json-out data/2026-03-06.json
 |---|---|---|
 | `NOTION_API_KEY` | Yes | Notion internal integration token |
 | `NOTION_PARENT_ID` | Yes | Parent page/database ID for new briefs |
+| `AIS_API_KEY` | No | aisstream.io WebSocket key — enables live maritime AIS tracking |
+| `CELESTRAK_API_KEY` | No | CelesTrak API key — enables live satellite orbital data via GP/OMM (OMM/JSON) endpoint |
+
 
 ---
 
@@ -102,8 +110,8 @@ python sentinel_brief.py --json-out data/2026-03-06.json
 | ✈ Aircraft | OpenSky Network | ✅ Live | Same ADS-B feed as FlightRadar24. Anonymous API: ~1 req/10s |
 | 📡 GPS Jamming | GPSJam.org | ✅ Live | Daily CSV. Derived from NACp anomalies in ADS-B messages |
 | ⛴ Maritime | AIS (simulated) | ⚠ Simulated | Register free at aisstream.io to activate |
-| 🛰 Satellites | CelesTrak TLE | ⚠ Simulated | Orbital propagation from TLE elements |
-| 💥 Incidents | ACLED (simulated) | ⚠ Simulated | Plug in ACLED API key to activate |
+| 🛰 Satellites | CelesTrak GP/OMM | ✅ Live | Queries resource & military groups. Falls back to simulated if unavailable |
+| 🌐 Global Events | GDELT Project | ✅ Live | Real-time conflict/security articles via DOC API v2. No key required |
 
 ---
 
@@ -123,14 +131,16 @@ GitHub Actions (cron: 00:05 UTC)
         ▼
 sentinel_brief.py
         │
-        ├── fetch_opensky()   → OpenSky ADS-B API → classify aircraft
-        ├── fetch_gpsjam()    → GPSJam.org CSV    → parse jamming zones
+        ├── fetch_opensky()    → OpenSky ADS-B API → classify aircraft
+        ├── fetch_gpsjam()     → GPSJam.org CSV    → parse jamming zones
+        ├── fetch_celestrak()  → CelesTrak GP API  → satellite orbital data
+        ├── fetch_gdelt()      → GDELT DOC API v2  → global conflict events
         │
         ▼
-generate_brief()              → Notion-flavored Markdown
+generate_brief()               → Notion-flavored Markdown
         │
         ▼
-post_to_notion()              → Notion API → new dated page
+post_to_notion()               → Notion API → new dated page
 ```
 
 ---
@@ -147,6 +157,43 @@ sentinel-pipeline/
 ├── requirements.txt
 └── README.md
 ```
+
+---
+
+## Custom Domain (GitHub Pages)
+
+The SENTINEL dashboard is served via GitHub Pages at **https://sentinel.akaind.ca/**.
+
+### DNS Configuration
+
+In your DNS provider for `akaind.ca`, add (or update) the following record:
+
+| Type | Host / Name | Value / Target | TTL |
+|---|---|---|---|
+| `CNAME` | `sentinel` | `aaakaind.github.io` | 3600 (or default) |
+
+**Step-by-step:**
+
+1. Log in to your DNS provider (e.g. Cloudflare, Namecheap, GoDaddy, Route 53)
+2. Navigate to the DNS records for `akaind.ca`
+3. If a record for `sentinel` already exists, **update** it — otherwise create a new one
+4. Set type to `CNAME`, host/name to `sentinel`, value/target to `aaakaind.github.io`
+5. Save and wait for propagation (typically 5–30 minutes, up to 48 hours)
+
+### Verify DNS
+
+```bash
+dig sentinel.akaind.ca +short
+# Expected output: aaakaind.github.io. (and a GitHub Pages IP)
+```
+
+### Enable HTTPS in GitHub Pages
+
+1. Go to **Settings → Pages** in this repository
+2. Under **Custom domain**, confirm it shows `sentinel.akaind.ca`
+3. Check **Enforce HTTPS** (available once DNS propagates and the TLS certificate is issued)
+
+> **Note:** The `CNAME` file in this repository tells GitHub Pages which custom domain to use. Do not remove or rename it.
 
 ---
 

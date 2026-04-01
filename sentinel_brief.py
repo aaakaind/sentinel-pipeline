@@ -16,6 +16,7 @@ Env vars required:
     NOTION_PARENT_ID    — page or database ID to create briefs under
 """
 
+import re
 import os
 import sys
 import json
@@ -49,6 +50,37 @@ OPENSKY_TOKEN_URL     = "https://opensky-network.org/auth/realms/opensky-network
 GPSJAM_BASE = "https://gpsjam.org/data"
 GPSJAM_TIMEOUT = 15
 GPSJAM_MIN_PROB = 0.3
+
+AIS_API_KEY       = os.getenv("AIS_API_KEY", "")         # aisstream.io WebSocket key
+AIS_WS_URL        = "wss://stream.aisstream.io/v0/stream"
+AIS_COLLECT_SECS  = 20                                    # seconds to collect AIS data
+AIS_BBOX          = [[[20, 10], [62, 55]]]                # E Europe / Mid East (same theater as OpenSky)
+CELESTRAK_API_KEY = os.getenv("CELESTRAK_API_KEY", "")   # CelesTrak TLE API key
+
+CELESTRAK_GP_URL  = "https://celestrak.org/NORAD/elements/gp.php"
+CELESTRAK_TIMEOUT = 15
+CELESTRAK_GROUPS  = ["resource", "military"]  # Earth observation + military sats
+
+# Key intel/observation satellites by NORAD catalog ID
+INTEL_SAT_CATALOG = {
+    40697: ("SENTINEL-2A",    "10m MSI",  "Eastern Europe"),
+    42063: ("SENTINEL-2B",    "10m MSI",  "Global"),
+    40115: ("WORLDVIEW-3",    "**0.3m**", "Global"),
+    35946: ("WORLDVIEW-2",    "0.5m",     "Global"),
+    33331: ("GEOEYE-1",       "0.5m",     "Global"),
+    31598: ("COSMO-SKYMED 1", "SAR",      "Eastern Europe"),
+    32376: ("COSMO-SKYMED 2", "SAR",      "Eastern Europe"),
+    36124: ("HELIOS 2B",      "0.5m",     "Global"),
+    39034: ("PLEIADES 1A",    "0.5m",     "Global"),
+    39634: ("PLEIADES 1B",    "0.5m",     "Global"),
+    49258: ("PLEIADES NEO 3", "0.3m",     "Middle East"),
+    51003: ("PLEIADES NEO 4", "0.3m",     "Global"),
+}
+
+GDELT_DOC_URL     = "https://api.gdeltproject.org/api/v2/doc/doc"
+GDELT_TIMEOUT     = 15
+GDELT_QUERY       = "(conflict OR military OR airstrike OR missile OR drone strike) sourcelang:english"
+GDELT_MAX_RECORDS = 30
 
 MILITARY_PREFIXES  = ["RFR","SHF","UAF","NATO","USAF","USN","RAF","RU","HKP","UKAF"]
 ISR_PREFIXES       = ["RCH","OSB","JAKE","COBRA","IRON","FORGE"]
@@ -248,6 +280,292 @@ def fetch_gpsjam(date_str: Optional[str] = None) -> dict:
     return _sim_gpsjam(result)
 
 
+def _classify_orbit(inclination: float, altitude_km: float) -> str:
+    """Classify orbit type from inclination and altitude."""
+    if altitude_km > 35000:
+        return "GEO"
+    if altitude_km > 2000:
+        return "MEO"
+    # Sun-synchronous orbits have inclination ~97-99° to maintain constant solar angle
+    if 96 <= inclination <= 100:
+        return "LEO-SSO"
+    return "LEO"
+
+
+def fetch_celestrak() -> dict:
+    """Fetch satellite orbital data from CelesTrak GP API (OMM/JSON format)."""
+    log.info("Fetching CelesTrak satellite orbital data...")
+    result = {"satellites": [], "source": "SIM"}
+
+    all_sats = []
+    for group in CELESTRAK_GROUPS:
+        try:
+            params = {"GROUP": group, "FORMAT": "json"}
+            if CELESTRAK_API_KEY:
+                params["API_KEY"] = CELESTRAK_API_KEY
+            r = requests.get(CELESTRAK_GP_URL, params=params, timeout=CELESTRAK_TIMEOUT)
+            if r.ok:
+                data = r.json()
+                if isinstance(data, list):
+                    all_sats.extend(data)
+                    log.info(f"CelesTrak {group}: {len(data)} objects")
+            else:
+                log.warning(f"CelesTrak {group} HTTP {r.status_code}")
+        except requests.Timeout:
+            log.warning(f"CelesTrak {group} timeout")
+        except Exception as e:
+            log.warning(f"CelesTrak {group} error: {e}")
+
+    if not all_sats:
+        log.warning("CelesTrak unavailable — using simulated satellite data")
+        return _sim_satellites(result)
+
+    # Match against intel satellite catalog by NORAD ID
+    matched = []
+    for sat in all_sats:
+        norad_id = sat.get("NORAD_CAT_ID")
+        if norad_id not in INTEL_SAT_CATALOG:
+            continue
+        display_name, res, coverage = INTEL_SAT_CATALOG[norad_id]
+        incl = sat.get("INCLINATION") or 0
+        peri = sat.get("PERIAPSIS")
+        apo  = sat.get("APOAPSIS")
+        alt  = round((peri + apo) / 2) if peri is not None and apo is not None else 0
+        matched.append({
+            "name": display_name,
+            "norad_id": norad_id,
+            "orbit": _classify_orbit(incl, alt),
+            "altitude": f"{alt} km",
+            "resolution": res,
+            "coverage": coverage,
+            "inclination": round(incl, 1),
+            "period_min": round(sat.get("PERIOD") or 0, 1),
+            "epoch": sat.get("EPOCH", ""),
+            "source": "CelesTrak-LIVE",
+        })
+
+    if matched:
+        result["satellites"] = matched
+        result["source"] = "CelesTrak-LIVE"
+        log.info(f"CelesTrak: {len(matched)} intel satellites tracked from {len(all_sats)} total objects")
+        return result
+
+    log.warning("No intel satellites matched in CelesTrak data — using simulated data")
+    return _sim_satellites(result)
+
+
+def fetch_gdelt() -> dict:
+    """Fetch recent global conflict/security events from GDELT Project DOC API v2."""
+    log.info("Fetching GDELT Project global events data...")
+    result = {"articles": [], "source": "SIM"}
+
+    params = {
+        "query": GDELT_QUERY,
+        "mode": "ArtList",
+        "maxrecords": GDELT_MAX_RECORDS,
+        "format": "json",
+        "timespan": "24h",
+        "sort": "DateDesc",
+    }
+
+    try:
+        r = requests.get(GDELT_DOC_URL, params=params, timeout=GDELT_TIMEOUT)
+        if not r.ok:
+            log.warning(f"GDELT API HTTP {r.status_code} — using simulated data")
+            return _sim_gdelt(result)
+
+        data = r.json()
+        articles = data.get("articles", [])
+
+        if not articles:
+            log.warning("GDELT returned no articles — using simulated data")
+            return _sim_gdelt(result)
+
+        parsed = []
+        for art in articles[:GDELT_MAX_RECORDS]:
+            seendate = art.get("seendate", "")
+            # GDELT dates: "20260306T123456Z" → "2026-03-06 12:34 UTC"
+            time_str = ""
+            if len(seendate) >= 15:
+                try:
+                    dt = datetime.strptime(seendate[:15], "%Y%m%dT%H%M%S")
+                    time_str = dt.strftime("%H:%M UTC")
+                except ValueError:
+                    time_str = seendate
+            parsed.append({
+                "title": art.get("title", "Untitled").strip(),
+                "url": art.get("url", ""),
+                "domain": art.get("domain", ""),
+                "seendate": seendate,
+                "time": time_str,
+                "language": art.get("language", "English"),
+                "sourcecountry": art.get("sourcecountry", ""),
+                "source": "GDELT-LIVE",
+            })
+
+        result["articles"] = parsed
+        result["source"] = "GDELT-LIVE"
+        log.info(f"GDELT: {len(parsed)} conflict-related articles (24h window)")
+        return result
+
+    except requests.Timeout:
+        log.warning("GDELT timeout — using simulated data")
+        return _sim_gdelt(result)
+    except Exception as e:
+        log.warning(f"GDELT error: {e} — using simulated data")
+        return _sim_gdelt(result)
+
+
+def _ais_area_from_coords(lat: float, lng: float) -> str:
+    """Infer maritime area name from vessel coordinates."""
+    # Most-specific regions first, then broader ones
+    if 44.5 <= lat <= 46 and 35.5 <= lng <= 37:
+        return "Kerch Strait"
+    if 40.5 <= lat <= 42 and 28 <= lng <= 30:
+        return "Bosphorus"
+    if 44 <= lat <= 47 and 35 <= lng <= 40:
+        return "Sea of Azov"
+    if 40 <= lat <= 47 and 27 <= lng <= 42:
+        return "Black Sea"
+    if 30 <= lat <= 42 and -6 <= lng <= 36:
+        return "Mediterranean"
+    if 20 <= lat <= 32 and 32 <= lng <= 44:
+        return "Red Sea"
+    if 24 <= lat <= 30 and 48 <= lng <= 56:
+        return "Persian Gulf"
+    if 54 <= lat <= 62 and 10 <= lng <= 30:
+        return "Baltic Sea"
+    if 55 <= lat <= 72 and -30 <= lng <= 10:
+        return "North Atlantic"
+    return "Open Water"
+
+
+_MILITARY_VESSEL_KW = ["NAVY", "NAVAL", "WARSHIP", "PATROL", "COAST GUARD",
+                       "COASTGUARD", "MILITARY", "DESTROYER", "FRIGATE",
+                       "CORVETTE", "SUBMARINE", "MINESWEEP", "LANDING"]
+_TANKER_KW  = ["TANKER", "CRUDE", "OIL", "LNG", "LPG", "CHEMICAL"]
+_CARGO_KW   = ["CARGO", "BULK", "CONTAINER", "CARRIER", "GENERAL"]
+
+
+def _classify_vessel(name: str) -> tuple:
+    """Classify vessel type from name heuristics. Returns (type, label)."""
+    up = name.upper()
+    for kw in _MILITARY_VESSEL_KW:
+        if kw in up:
+            return ("military", "Military/Govt")
+    for kw in _TANKER_KW:
+        if kw in up:
+            return ("tanker", "Tanker")
+    for kw in _CARGO_KW:
+        if kw in up:
+            return ("cargo", "Cargo")
+    return ("other", "Vessel")
+
+
+_NAV_STATUS = {0: "Under way", 1: "At anchor", 2: "Not under command",
+               3: "Restricted manoeuvrability", 5: "Moored", 7: "Fishing",
+               8: "Under sail", 14: "AIS-SART"}
+
+
+def fetch_ais() -> dict:
+    """Fetch AIS maritime vessel data from aisstream.io WebSocket API."""
+    log.info("Fetching AIS maritime data...")
+    result = {"vessels": [], "military": [], "tankers": [], "cargo": [], "source": "SIM"}
+
+    if not AIS_API_KEY:
+        log.info("AIS_API_KEY not set — using simulated maritime data")
+        return _sim_ais(result)
+
+    try:
+        import websocket
+        import threading
+
+        vessels_seen: dict = {}
+
+        def on_message(ws, message):
+            try:
+                data = json.loads(message)
+                if data.get("MessageType") != "PositionReport":
+                    return
+                meta = data.get("MetaData", {})
+                pos  = data.get("Message", {}).get("PositionReport", {})
+                mmsi = meta.get("MMSI")
+                if mmsi is None or mmsi in vessels_seen:
+                    return
+
+                name = (meta.get("ShipName") or "UNKNOWN").strip()
+                lat  = round(meta.get("latitude", 0) or pos.get("Latitude", 0), 4)
+                lng  = round(meta.get("longitude", 0) or pos.get("Longitude", 0), 4)
+                sog  = round(pos.get("Sog", 0) or 0, 1)
+                hdg  = pos.get("TrueHeading", 511)
+                cog  = round(pos.get("Cog", 0) or 0)
+                nav  = pos.get("NavigationalStatus", 15)
+
+                vtype, label = _classify_vessel(name)
+                vessel = {
+                    "mmsi": mmsi, "name": name, "lat": lat, "lng": lng,
+                    "speed_kts": sog,
+                    "heading": cog if hdg == 511 else hdg,
+                    "nav_status": _NAV_STATUS.get(nav, "Unknown"),
+                    "area": _ais_area_from_coords(lat, lng),
+                    "type": vtype, "label": label,
+                    "source": "AISstream-LIVE",
+                }
+
+                vessels_seen[mmsi] = vessel
+                result["vessels"].append(vessel)
+                if vtype == "military":
+                    result["military"].append(vessel)
+                elif vtype == "tanker":
+                    result["tankers"].append(vessel)
+                elif vtype == "cargo":
+                    result["cargo"].append(vessel)
+            except Exception:
+                pass
+
+        def on_error(ws, error):
+            log.warning(f"AIS WebSocket error: {error}")
+
+        def on_open(ws):
+            ws.send(json.dumps({
+                "APIKey": AIS_API_KEY,
+                "BoundingBoxes": AIS_BBOX,
+                "FilterMessageTypes": ["PositionReport"],
+            }))
+            log.info("AIS WebSocket connected, collecting vessel data...")
+
+        ws = websocket.WebSocketApp(AIS_WS_URL,
+                                     on_message=on_message,
+                                     on_error=on_error,
+                                     on_open=on_open)
+
+        timer = threading.Timer(AIS_COLLECT_SECS, ws.close)
+        timer.daemon = True
+        timer.start()
+        try:
+            ws.run_forever(ping_interval=10, ping_timeout=5)
+        finally:
+            timer.cancel()
+
+        if vessels_seen:
+            result["source"] = "AISstream-LIVE"
+            log.info(f"AIS: {len(result['vessels'])} vessels | "
+                     f"{len(result['military'])} military | "
+                     f"{len(result['tankers'])} tankers | "
+                     f"{len(result['cargo'])} cargo")
+            return result
+
+        log.warning("AIS returned no vessels — using simulated data")
+        return _sim_ais(result)
+
+    except ImportError:
+        log.warning("websocket-client not installed — using simulated AIS data")
+        return _sim_ais(result)
+    except Exception as e:
+        log.warning(f"AIS error: {e} — using simulated data")
+        return _sim_ais(result)
+
+
 # ─────────────────────────────────────────────
 #  SIMULATION FALLBACKS
 # ─────────────────────────────────────────────
@@ -295,15 +613,74 @@ def _sim_gpsjam(result: dict) -> dict:
     return result
 
 
+def _sim_satellites(result: dict) -> dict:
+    """Simulation fallback — hardcoded satellite data matching pre-live format."""
+    sats = [
+        {"name": "SENTINEL-2A",  "orbit": "LEO-SSO", "altitude": "786 km", "resolution": "10m MSI",  "coverage": "Eastern Europe", "source": "SIM"},
+        {"name": "WORLDVIEW-3",  "orbit": "LEO",     "altitude": "617 km", "resolution": "**0.3m**", "coverage": "Global",         "source": "SIM"},
+        {"name": "COSMO-SKYMED", "orbit": "LEO-SSO", "altitude": "619 km", "resolution": "SAR",      "coverage": "Eastern Europe", "source": "SIM"},
+        {"name": "HELIOS-2B",    "orbit": "LEO-SSO", "altitude": "680 km", "resolution": "0.5m",     "coverage": "Global",         "source": "SIM"},
+        {"name": "OFEK-16",      "orbit": "LEO",     "altitude": "420 km", "resolution": "**0.3m**", "coverage": "Middle East",    "source": "SIM"},
+        {"name": "PLEIADES-NEO", "orbit": "LEO-SSO", "altitude": "480 km", "resolution": "0.3m",     "coverage": "Middle East",    "source": "SIM"},
+    ]
+    result["satellites"] = sats
+    result["source"] = "SIM"
+    log.info(f"Simulated: {len(sats)} satellites")
+    return result
+
+
+def _sim_ais(result: dict) -> dict:
+    """Simulation fallback — representative AIS maritime data."""
+    vessels = [
+        {"name": "BLACK SEA 47", "type": "military", "label": "Destroyer",    "speed_kts": 12.3, "lat": 43.50, "lng": 34.20, "area": "Black Sea",     "nav_status": "Under way",   "source": "SIM"},
+        {"name": "AZOV 12",      "type": "military", "label": "Frigate",      "speed_kts": 8.7,  "lat": 46.50, "lng": 38.20, "area": "Sea of Azov",   "nav_status": "Under way",   "source": "SIM"},
+        {"name": "KERCH 3",      "type": "military", "label": "Landing Ship", "speed_kts": 6.2,  "lat": 45.30, "lng": 36.50, "area": "Kerch Strait",  "nav_status": "Under way",   "source": "SIM"},
+        {"name": "ATLANTIC 18",  "type": "cargo",    "label": "Bulk Carrier", "speed_kts": 14.1, "lat": 36.10, "lng": 28.50, "area": "Mediterranean", "nav_status": "Under way",   "source": "SIM"},
+        {"name": "PACIFIC 44",   "type": "tanker",   "label": "Oil Tanker",   "speed_kts": 11.8, "lat": 41.20, "lng": 29.10, "area": "Bosphorus",     "nav_status": "Under way",   "source": "SIM"},
+    ]
+    for v in vessels:
+        result["vessels"].append(v)
+        if v["type"] == "military":
+            result["military"].append(v)
+        elif v["type"] == "tanker":
+            result["tankers"].append(v)
+        elif v["type"] == "cargo":
+            result["cargo"].append(v)
+    result["source"] = "SIM"
+    log.info(f"Simulated: {len(vessels)} vessels")
+    return result
+
+
+def _sim_gdelt(result: dict) -> dict:
+    """Simulation fallback — representative GDELT articles for template."""
+    articles = [
+        {"title": "Missile strikes reported in eastern Ukraine overnight",       "domain": "reuters.com",     "time": "03:14 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
+        {"title": "IDF confirms drone interception over northern border",        "domain": "timesofisrael.com","time": "07:32 UTC", "sourcecountry": "Israel",         "source": "SIM"},
+        {"title": "NATO increases Baltic air patrols amid rising tensions",      "domain": "bbc.co.uk",       "time": "09:45 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
+        {"title": "Red Sea shipping disrupted by Houthi attacks",                "domain": "aljazeera.com",   "time": "11:20 UTC", "sourcecountry": "Qatar",          "source": "SIM"},
+        {"title": "South China Sea military exercises escalate regional concern", "domain": "scmp.com",        "time": "14:55 UTC", "sourcecountry": "Hong Kong",      "source": "SIM"},
+        {"title": "Wagner-linked forces advance in Sahel region",                "domain": "france24.com",    "time": "16:30 UTC", "sourcecountry": "France",         "source": "SIM"},
+        {"title": "DPRK ballistic missile test prompts emergency UN session",    "domain": "apnews.com",      "time": "19:10 UTC", "sourcecountry": "United States",  "source": "SIM"},
+        {"title": "Russian submarine activity detected in North Atlantic",       "domain": "bbc.co.uk",       "time": "21:40 UTC", "sourcecountry": "United Kingdom", "source": "SIM"},
+    ]
+    result["articles"] = articles
+    result["source"] = "SIM"
+    log.info(f"Simulated: {len(articles)} GDELT articles")
+    return result
+
+
 # ─────────────────────────────────────────────
 #  BRIEF GENERATOR — Notion Markdown
 # ─────────────────────────────────────────────
 
-def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
+def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: dict, ais_data: dict, brief_date: str) -> str:
     """Build Notion-flavored Markdown for the daily brief page."""
     now_str    = datetime.now(timezone.utc).strftime("%B %-d, %Y %H:%M UTC")
     air_source = ac_data["source"]
     jam_source = jam_data["source"]
+    sat_source = sat_data.get("source", "SIM")
+    gdelt_source = gdelt_data.get("source", "SIM")
+    ais_source = ais_data.get("source", "SIM")
     is_live    = "LIVE" in air_source
 
     total_ac  = len(ac_data["aircraft"])
@@ -328,7 +705,7 @@ def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
     A(f'::: callout {{icon="🛰" color="gray_bg"}}')
     A(f'**SENTINEL World Intelligence Platform** · Daily Brief')
     A(f'**Generated:** {now_str}  ·  **Coverage Date:** {brief_date}')
-    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}')
+    A(f'**Air Feed:** {air_source}  ·  **GPS Jam Feed:** {jam_source}  ·  **AIS Feed:** {ais_source}  ·  **Sat Feed:** {sat_source}  ·  **Events:** {gdelt_source}')
     A(f'**Theater:** Eastern Europe / Middle East / Indo-Pacific / North Atlantic / Sub-Saharan Africa / Americas')
     A(':::')
     A('')
@@ -441,21 +818,45 @@ def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
     A('')
 
     # ── MARITIME ─────────────────────────────
-    A('# ⛴ Maritime Domain — AIS')
+    ais_live_badge = "✅ LIVE AIS" if "LIVE" in ais_source else "⚠ SIMULATED"
+    ais_vessels  = ais_data.get("vessels", [])
+    ais_mil      = ais_data.get("military", [])
+    ais_tankers  = ais_data.get("tankers", [])
+    ais_cargo    = ais_data.get("cargo", [])
+    A(f'# ⛴ Maritime Domain — {ais_live_badge}')
     A('')
-    A('::: callout {icon="ℹ️" color="gray_bg"}')
-    A('**AIS Status: SIMULATED** · Register free at aisstream.io to enable live vessel tracking')
-    A('Live feed uses same data as MarineTraffic and VesselFinder — mandatory AIS transponder data')
-    A(':::')
+    if "LIVE" in ais_source:
+        A('::: callout {icon="🚢" color="blue_bg"}')
+        A(f'**AIS Status: LIVE** · aisstream.io WebSocket feed · same data as MarineTraffic & VesselFinder')
+        A(f'**Contacts:** {len(ais_vessels)} vessels · {len(ais_mil)} military · {len(ais_tankers)} tankers · {len(ais_cargo)} cargo')
+        A(':::')
+    else:
+        A('::: callout {icon="ℹ️" color="gray_bg"}')
+        A('**AIS Status: SIMULATED** · Register free at aisstream.io to enable live vessel tracking')
+        A('Live feed uses same data as MarineTraffic and VesselFinder — mandatory AIS transponder data')
+        A(':::')
     A('')
-    A('<table fit-page-width="true" header-row="true">')
-    A('\t<tr><td>**Vessel**</td><td>**Type**</td><td>**Speed**</td><td>**Area**</td><td>**Status**</td></tr>')
-    A('\t<tr color="red_bg"><td>BLACK SEA 47</td><td>Destroyer</td><td>12.3 kts</td><td>Black Sea</td><td>Active patrol</td></tr>')
-    A('\t<tr color="red_bg"><td>AZOV 12</td><td>Frigate</td><td>8.7 kts</td><td>Sea of Azov</td><td>Formation patrol</td></tr>')
-    A('\t<tr color="orange_bg"><td>KERCH 3</td><td>Landing Ship</td><td>6.2 kts</td><td>Kerch Strait</td><td>Amphibious posture</td></tr>')
-    A('\t<tr><td>ATLANTIC 18</td><td>Bulk Carrier</td><td>14.1 kts</td><td>Mediterranean</td><td>Commercial transit</td></tr>')
-    A('\t<tr><td>PACIFIC 44</td><td>Oil Tanker</td><td>11.8 kts</td><td>Bosphorus</td><td>Sanctions monitoring</td></tr>')
-    A('</table>')
+
+    if ais_vessels:
+        A('<table fit-page-width="true" header-row="true">')
+        A('\t<tr><td>**Vessel**</td><td>**Type**</td><td>**Speed**</td><td>**Area**</td><td>**Status**</td></tr>')
+        for v in ais_vessels[:15]:
+            name   = html_mod.escape(v.get("name", "UNKNOWN"))
+            label  = html_mod.escape(v.get("label", "Vessel"))
+            spd    = v.get("speed_kts", 0)
+            area   = html_mod.escape(v.get("area", "Unknown"))
+            status = html_mod.escape(v.get("nav_status", "Unknown"))
+            color  = ""
+            if v.get("type") == "military":
+                color = ' color="red_bg"'
+            elif v.get("type") == "tanker":
+                color = ' color="yellow_bg"'
+            A(f'\t<tr{color}><td>{name}</td><td>{label}</td><td>{spd} kts</td><td>{area}</td><td>{status}</td></tr>')
+        A('</table>')
+        if len(ais_vessels) > 15:
+            A('')
+            A(f'*...and {len(ais_vessels) - 15} additional vessels tracked*')
+
     A('')
     A('---')
     A('')
@@ -516,8 +917,268 @@ def generate_brief(ac_data: dict, jam_data: dict, brief_date: str) -> str:
 #  NOTION POSTER
 # ─────────────────────────────────────────────
 
+
+# ─────────────────────────────────────────────
+#  NOTION POSTER
+# ─────────────────────────────────────────────
+
+def _rt(text: str) -> list:
+    """Parse inline markdown into Notion rich_text array (bold, italic, code)."""
+    parts = []
+    # Split on **bold**, *italic*, `code`
+    pattern = r'(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)'
+    segments = re.split(pattern, text)
+    for seg in segments:
+        if not seg:
+            continue
+        ann = {}
+        content = seg
+        if seg.startswith("**") and seg.endswith("**"):
+            content = seg[2:-2]
+            ann["bold"] = True
+        elif seg.startswith("*") and seg.endswith("*"):
+            content = seg[1:-1]
+            ann["italic"] = True
+        elif seg.startswith("`") and seg.endswith("`"):
+            content = seg[1:-1]
+            ann["code"] = True
+        if content:
+            rt = {"type": "text", "text": {"content": content[:2000]}}
+            if ann:
+                rt["annotations"] = ann
+            parts.append(rt)
+    return parts or [{"type": "text", "text": {"content": text[:2000]}}]
+
+
+def _heading(text: str, level: int) -> dict:
+    t = f"heading_{level}"
+    return {"object": "block", "type": t, t: {"rich_text": _rt(text)}}
+
+
+def _para(text: str) -> dict:
+    return {"object": "block", "type": "paragraph",
+            "paragraph": {"rich_text": _rt(text)}}
+
+
+def _bullet(text: str) -> dict:
+    return {"object": "block", "type": "bulleted_list_item",
+            "bulleted_list_item": {"rich_text": _rt(text)}}
+
+
+def _todo(text: str, checked: bool) -> dict:
+    return {"object": "block", "type": "to_do",
+            "to_do": {"rich_text": _rt(text), "checked": checked}}
+
+
+def _divider() -> dict:
+    return {"object": "block", "type": "divider", "divider": {}}
+
+
+def _quote(text: str) -> dict:
+    return {"object": "block", "type": "quote",
+            "quote": {"rich_text": _rt(text)}}
+
+
+def _callout(text: str, icon: str = "🛰", color: str = "gray_background") -> dict:
+    COLOR_MAP = {
+        "gray_bg": "gray_background", "blue_bg": "blue_background",
+        "red_bg": "red_background", "orange_bg": "orange_background",
+        "yellow_bg": "yellow_background", "green_bg": "green_background",
+        "purple_bg": "purple_background", "pink_bg": "pink_background",
+    }
+    notion_color = COLOR_MAP.get(color, color if color.endswith("_background") else "gray_background")
+    return {
+        "object": "block", "type": "callout",
+        "callout": {
+            "rich_text": _rt(text),
+            "icon": {"type": "emoji", "emoji": icon},
+            "color": notion_color,
+        }
+    }
+
+
+def _toggle(summary: str, children: list) -> dict:
+    return {
+        "object": "block", "type": "toggle",
+        "toggle": {
+            "rich_text": _rt(summary),
+            "children": children[:100],
+        }
+    }
+
+
+def _table_row(cells: list) -> dict:
+    return {
+        "object": "block", "type": "table_row",
+        "table_row": {"cells": [[{"type": "text", "text": {"content": re.sub(r"\*\*(.+?)\*\*", r"\1", c)}}] for c in cells]}
+    }
+
+
+def _parse_table(block: str) -> list:
+    """Parse <table> HTML into Notion table block."""
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.DOTALL)
+    if not rows:
+        return [_para(block[:200])]
+    parsed_rows = []
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        if cells:
+            parsed_rows.append(cells)
+    if not parsed_rows:
+        return []
+    col_count = max(len(r) for r in parsed_rows)
+    # Pad rows
+    for r in parsed_rows:
+        while len(r) < col_count:
+            r.append("")
+    has_header = "header-row" in block
+    table_block = {
+        "object": "block", "type": "table",
+        "table": {
+            "table_width": col_count,
+            "has_column_header": False,
+            "has_row_header": False,
+            "children": [_table_row(r) for r in parsed_rows],
+        }
+    }
+    if has_header and parsed_rows:
+        table_block["table"]["has_column_header"] = True
+    return [table_block]
+
+
+def md_to_notion_blocks(md: str) -> list:
+    """Convert Notion-flavored Markdown to Notion API block objects."""
+    blocks = []
+    lines = md.split("\n")
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # Skip empty
+        if not stripped:
+            i += 1
+            continue
+
+        # Divider
+        if stripped == "---":
+            blocks.append(_divider())
+            i += 1
+            continue
+
+        # Headings
+        if stripped.startswith("#### "):
+            blocks.append(_heading(stripped[5:], 3))
+            i += 1; continue
+        if stripped.startswith("### "):
+            blocks.append(_heading(stripped[4:], 3))
+            i += 1; continue
+        if stripped.startswith("## "):
+            blocks.append(_heading(stripped[3:], 2))
+            i += 1; continue
+        if stripped.startswith("# "):
+            # Strip {color=...} attribute
+            txt = re.sub(r"\s*\{color=[^}]+\}", "", stripped[2:]).strip()
+            blocks.append(_heading(txt, 1))
+            i += 1; continue
+
+        # Blockquote
+        if stripped.startswith("> "):
+            blocks.append(_quote(stripped[2:]))
+            i += 1; continue
+
+        # Callout ::: callout {icon="X" color="Y"}
+        if stripped.startswith("::: callout"):
+            icon_m = re.search(r'icon="([^"]+)"', stripped)
+            color_m = re.search(r'color="([^"]+)"', stripped)
+            icon = icon_m.group(1) if icon_m else "🛰"
+            color = color_m.group(1) if color_m else "gray_bg"
+            # collect until :::
+            i += 1
+            content_lines = []
+            while i < len(lines) and lines[i].strip() != ":::":
+                content_lines.append(lines[i].strip())
+                i += 1
+            i += 1  # skip closing :::
+            text = " ".join(l for l in content_lines if l)
+            blocks.append(_callout(text, icon, color))
+            continue
+
+        # Toggle / details
+        if stripped.startswith("<details>") or stripped == "<details>":
+            i += 1
+            summary = ""
+            if i < len(lines) and "<summary>" in lines[i]:
+                sm = re.search(r"<summary>(.*?)</summary>", lines[i])
+                if sm:
+                    summary = sm.group(1)
+                i += 1
+            children = []
+            while i < len(lines) and lines[i].strip() != "</details>":
+                cl = lines[i].strip()
+                if cl.startswith("- "):
+                    children.append(_bullet(cl[2:]))
+                elif cl:
+                    children.append(_para(cl))
+                i += 1
+            i += 1  # skip </details>
+            blocks.append(_toggle(summary or "Details", children or [_para("—")]))
+            continue
+
+        # Table
+        if stripped.startswith("<table"):
+            table_lines = []
+            while i < len(lines) and not lines[i].strip().startswith("</table>"):
+                table_lines.append(lines[i])
+                i += 1
+            i += 1  # skip </table>
+            table_str = "\n".join(table_lines)
+            blocks.extend(_parse_table(table_str))
+            continue
+
+        # To-do items
+        todo_m = re.match(r"- \[(x| )\] (.+)", stripped)
+        if todo_m:
+            checked = todo_m.group(1) == "x"
+            text = todo_m.group(2)
+            blocks.append(_todo(text, checked))
+            i += 1; continue
+
+        # Bullet list
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            blocks.append(_bullet(stripped[2:]))
+            i += 1; continue
+
+        # Numbered list
+        num_m = re.match(r"^\d+\.\s+(.+)", stripped)
+        if num_m:
+            blocks.append({
+                "object": "block", "type": "numbered_list_item",
+                "numbered_list_item": {"rich_text": _rt(num_m.group(1))}
+            })
+            i += 1; continue
+
+        # Skip HTML tags we don't handle
+        if stripped.startswith("<") and stripped.endswith(">"):
+            i += 1; continue
+
+        # Default: paragraph
+        blocks.append(_para(stripped))
+        i += 1
+
+    return blocks[:100]
+
+
 def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Optional[str]:
-    """Create a new Notion page with the daily brief content."""
+    """Create a new Notion page with the daily brief content.
+
+    Converts the generated markdown to structured Notion blocks (headings,
+    callouts, tables, toggles, etc.) and posts them via the Notion API.
+    When the brief exceeds 100 blocks, remaining blocks are appended in
+    subsequent batches using the Block children endpoint.
+    """
     if not NOTION_API_KEY and not dry_run:
         log.error("NOTION_API_KEY not set. Use --dry-run or set env var.")
         sys.exit(1)
@@ -528,11 +1189,13 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     d = datetime.strptime(brief_date, "%Y-%m-%d")
     title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
 
+    blocks = _md_to_notion_blocks(content)
+
     if dry_run:
         log.info("── DRY RUN ── Notion page would be created:")
         log.info(f"Title: {title}")
         log.info(f"Parent ID: {NOTION_PARENT_ID or '(not set)'}")
-        log.info(f"Content length: {len(content)} chars")
+        log.info(f"Content length: {len(content)} chars, Notion blocks: {len(blocks)}")
         print("\n" + "="*60)
         print(title)
         print("="*60)
@@ -544,12 +1207,17 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
-    payload = {
+
+    blocks = md_to_notion_blocks(content)
+    log.info(f"Converted markdown to {len(blocks)} Notion blocks")
+
+    # Notion allows max 100 blocks per request — chunk if needed
+    page_payload = {
         "parent": {"page_id": NOTION_PARENT_ID},
         "properties": {
             "title": [{"text": {"content": title}}]
         },
-        "children": _md_to_notion_blocks(content)
+        "children": blocks[:100],  # Notion limit: 100 children per request
     }
 
     log.info(f"Posting to Notion: '{title}'...")
@@ -576,6 +1244,30 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
             log.error(f"Notion retry error {r2.status_code}: {r2.text[:500]}")
         return None
 
+    page = r.json()
+    page_id = page.get("id", "")
+    url = page.get("url", "")
+    log.info(f"✅ Created: {url}")
+
+    # Append remaining blocks in batches of 100
+    remaining = blocks[100:]
+    batch_num = 1
+    while remaining:
+        batch = remaining[:100]
+        remaining = remaining[100:]
+        try:
+            r2 = requests.patch(
+                f"https://api.notion.com/v1/blocks/{page_id}/children",
+                headers=headers, json={"children": batch}, timeout=30)
+            if r2.ok:
+                log.info(f"  Appended block batch {batch_num} ({len(batch)} blocks)")
+            else:
+                log.warning(f"  Failed to append batch {batch_num}: HTTP {r2.status_code}")
+                break
+        except requests.RequestException as e:
+            log.warning(f"  Error appending batch {batch_num}: {e}")
+            break
+        batch_num += 1
 
 def _md_to_notion_blocks(md: str) -> list:
     """Convert our generated markdown into proper Notion API block objects."""
@@ -792,9 +1484,6 @@ def _md_to_notion_blocks(md: str) -> list:
     return blocks
 
 
-# ─────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SENTINEL Daily Intelligence Brief Generator")
@@ -811,17 +1500,25 @@ def main():
     ac_data  = fetch_opensky()
     time.sleep(1)  # be kind to APIs
     jam_data = fetch_gpsjam()
+    time.sleep(1)
+    sat_data = fetch_celestrak()
+    time.sleep(1)
+    gdelt_data = fetch_gdelt()
+    time.sleep(1)
+    ais_data = fetch_ais()
 
     # Optional raw data export
     if args.json_out:
         with open(args.json_out, "w") as f:
             json.dump({"aircraft": ac_data, "jamming": jam_data,
+                       "satellites": sat_data, "gdelt": gdelt_data,
+                       "ais": ais_data,
                        "generated": datetime.now(timezone.utc).isoformat()}, f, indent=2)
         log.info(f"Raw data saved to {args.json_out}")
 
     # Generate brief
     log.info("Generating intelligence brief...")
-    content = generate_brief(ac_data, jam_data, brief_date)
+    content = generate_brief(ac_data, jam_data, sat_data, gdelt_data, ais_data, brief_date)
     log.info(f"Brief generated: {len(content)} chars")
 
     # Post to Notion

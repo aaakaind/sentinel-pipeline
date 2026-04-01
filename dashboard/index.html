@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SENTINEL v6 — World Intelligence Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{
+  --space:#020811;--panel:#060d17;--card:rgba(8,16,28,0.95);
+  --glass:rgba(6,13,23,0.88);--glass2:rgba(6,13,23,0.97);
+  --cyan:#22d3ee;--gold:#f59e0b;--red:#ef4444;--green:#10b981;
+  --blue:#3b82f6;--purple:#a78bfa;--orange:#f97316;--magenta:#ec4899;
+  --text:#dde6f0;--muted:#3a5570;--sub:#7a9ab8;
+  --b1:rgba(34,211,238,0.1);--b2:rgba(34,211,238,0.25);
+  --glow:0 0 20px rgba(34,211,238,0.25);
+  --radius:6px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;background:var(--space);font-family:'DM Mono',monospace;color:var(--text);overflow:hidden;}
+body{display:flex;flex-direction:column;}
+
+/* ── BOOT SEQUENCE ── */
+#boot{position:fixed;inset:0;z-index:9999;background:var(--space);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;transition:opacity .6s;}
+#boot.done{opacity:0;pointer-events:none;}
+#boot .logo{font-family:'Syne',sans-serif;font-size:42px;font-weight:800;letter-spacing:.12em;background:linear-gradient(135deg,var(--cyan),var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+#boot .bar-wrap{width:260px;height:3px;background:rgba(34,211,238,.08);border-radius:2px;overflow:hidden;}
+#boot .bar-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--blue));border-radius:2px;transition:width .3s;}
+#boot .status{font-size:9px;letter-spacing:.2em;color:var(--sub);}
+/* ── TOP BAR ── */
+.topbar{height:42px;min-height:42px;background:var(--glass2);border-bottom:1px solid rgba(34,211,238,.08);display:flex;align-items:center;padding:0 16px;gap:16px;z-index:100;}
+.topbar .brand{font-family:'Syne',sans-serif;font-weight:800;font-size:14px;letter-spacing:.1em;background:linear-gradient(135deg,var(--cyan),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.topbar .sep{width:1px;height:18px;background:rgba(34,211,238,.12);}
+.topbar .meta{font-size:8px;letter-spacing:.15em;color:var(--sub);}
+.topbar .spacer{flex:1;}
+.topbar .clock{font-size:11px;color:var(--cyan);letter-spacing:.08em;}
+.conn-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse-dot 2s infinite;}
+@keyframes pulse-dot{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+/* ── MAIN LAYOUT ── */
+.main{flex:1;display:flex;overflow:hidden;position:relative;}
+
+/* ── MAP ── */
+#map{flex:1;background:var(--space);}
+.leaflet-container{background:var(--space)!important;}
+.leaflet-control-zoom a{background:var(--glass2)!important;color:var(--cyan)!important;border-color:rgba(34,211,238,.12)!important;}
+.leaflet-popup-content-wrapper{background:var(--card)!important;color:var(--text)!important;border:1px solid rgba(34,211,238,.15)!important;border-radius:var(--radius)!important;box-shadow:0 8px 32px rgba(0,0,0,.6),var(--glow)!important;}
+.leaflet-popup-tip{background:var(--card)!important;}
+.leaflet-popup-content{font-family:'DM Mono',monospace!important;font-size:10px!important;line-height:1.7!important;}
+.leaflet-popup-content .pop-title{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:var(--cyan);margin-bottom:6px;}
+.leaflet-popup-content .pop-row{display:flex;justify-content:space-between;gap:12px;}
+.leaflet-popup-content .pop-label{color:var(--sub);font-size:8px;letter-spacing:.12em;text-transform:uppercase;}
+.leaflet-popup-content .pop-val{color:var(--text);font-size:10px;text-align:right;}
+/* ── LEGEND PANEL ── */
+.legend-panel{position:absolute;top:12px;left:60px;z-index:500;background:var(--glass2);border:1px solid rgba(34,211,238,.1);border-radius:8px;padding:10px 12px;backdrop-filter:blur(16px);min-width:220px;transition:all .2s;}
+.legend-panel:hover{border-color:rgba(34,211,238,.25);box-shadow:0 4px 24px rgba(0,0,0,.4);}
+.legend-title{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;letter-spacing:.2em;color:var(--sub);margin-bottom:8px;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+.legend-title::after{content:'';flex:1;height:1px;background:rgba(34,211,238,.08);}
+.legend-item{display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;transition:opacity .15s;user-select:none;}
+.legend-item.off{opacity:.3;}
+.legend-item .swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0;transition:all .2s;}
+.legend-item.off .swatch{background:var(--muted)!important;box-shadow:none!important;}
+.legend-item .lbl{font-size:9px;letter-spacing:.1em;flex:1;}
+.legend-item .cnt{font-size:9px;color:var(--sub);min-width:24px;text-align:right;font-variant-numeric:tabular-nums;}
+.legend-item .toggle{position:relative;width:26px;height:14px;border-radius:7px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.15);flex-shrink:0;transition:all .2s;}
+.legend-item .toggle::after{content:'';position:absolute;top:2px;left:2px;width:8px;height:8px;border-radius:50%;background:var(--cyan);transition:all .2s;box-shadow:0 0 6px var(--cyan);}
+.legend-item.off .toggle{background:rgba(255,255,255,.03);border-color:rgba(255,255,255,.08);}
+.legend-item.off .toggle::after{background:var(--muted);left:2px;box-shadow:none;}
+.legend-item:not(.off) .toggle::after{left:14px;}
+
+/* ── STREAMS PANEL ── */
+.streams-panel{position:absolute;top:12px;right:12px;z-index:500;background:var(--glass2);border:1px solid rgba(34,211,238,.1);border-radius:8px;padding:10px 12px;backdrop-filter:blur(16px);width:280px;max-height:calc(100vh - 120px);overflow-y:auto;transition:all .2s;}
+.streams-panel:hover{border-color:rgba(34,211,238,.25);}
+.streams-title{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;letter-spacing:.2em;color:var(--sub);margin-bottom:10px;text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+.streams-title::after{content:'';flex:1;height:1px;background:rgba(34,211,238,.08);}
+.stream-card{background:rgba(34,211,238,.03);border:1px solid rgba(34,211,238,.06);border-radius:var(--radius);padding:8px 10px;margin-bottom:6px;transition:all .2s;}
+.stream-card:hover{border-color:rgba(34,211,238,.2);background:rgba(34,211,238,.06);}
+.stream-head{display:flex;align-items:center;gap:6px;margin-bottom:4px;}
+.stream-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;}
+.stream-dot.live{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse-dot 2s infinite;}
+.stream-dot.stale{background:var(--gold);box-shadow:0 0 6px var(--gold);}
+.stream-dot.dead{background:var(--red);box-shadow:0 0 4px var(--red);}
+.stream-dot.sim{background:var(--purple);box-shadow:0 0 4px var(--purple);}
+.stream-name{font-family:'Syne',sans-serif;font-size:10px;font-weight:600;letter-spacing:.06em;flex:1;}
+.stream-badge{font-size:7px;letter-spacing:.15em;padding:1px 5px;border-radius:3px;border:1px solid;text-transform:uppercase;}
+.stream-badge.live{color:var(--green);border-color:rgba(16,185,129,.3);}
+.stream-badge.sim{color:var(--purple);border-color:rgba(167,139,250,.3);}
+.stream-meta{font-size:8px;color:var(--sub);letter-spacing:.06em;line-height:1.6;}
+.stream-bar{height:2px;background:rgba(34,211,238,.06);border-radius:1px;margin-top:4px;overflow:hidden;}
+.stream-bar-fill{height:100%;border-radius:1px;transition:width 1s;}
+
+/* ── ACTIVITY FEED ── */
+.feed-section{margin-top:8px;border-top:1px solid rgba(34,211,238,.06);padding-top:8px;}
+.feed-title{font-size:8px;letter-spacing:.2em;color:var(--muted);margin-bottom:6px;text-transform:uppercase;}
+.feed-item{font-size:8px;color:var(--sub);padding:3px 0;border-bottom:1px solid rgba(34,211,238,.03);display:flex;gap:6px;align-items:flex-start;line-height:1.5;}
+.feed-item .feed-time{color:var(--muted);flex-shrink:0;font-variant-numeric:tabular-nums;min-width:36px;}.feed-item .feed-icon{flex-shrink:0;width:12px;text-align:center;}
+.feed-item .feed-msg{flex:1;}
+
+/* ── STATS BAR ── */
+.statsbar{height:32px;min-height:32px;background:var(--glass2);border-top:1px solid rgba(34,211,238,.08);display:flex;align-items:center;padding:0 16px;gap:20px;z-index:100;}
+.stat{display:flex;align-items:center;gap:5px;font-size:8px;letter-spacing:.1em;}
+.stat .stat-dot{width:5px;height:5px;border-radius:50%;}
+.stat .stat-label{color:var(--muted);text-transform:uppercase;}
+.stat .stat-val{color:var(--text);font-variant-numeric:tabular-nums;}
+.statsbar .spacer{flex:1;}
+.statsbar .osint-tag{font-size:7px;letter-spacing:.25em;color:rgba(255,255,255,.12);}
+
+/* ── MAP MARKERS ── */
+.marker-ac{color:var(--cyan);filter:drop-shadow(0 0 4px var(--cyan));font-size:14px;transition:all .15s;}
+.marker-ac:hover{filter:drop-shadow(0 0 8px var(--cyan));transform:scale(1.3);}
+.marker-nv{color:var(--gold);filter:drop-shadow(0 0 4px var(--gold));font-size:14px;transition:all .15s;}
+.marker-nv:hover{filter:drop-shadow(0 0 8px var(--gold));transform:scale(1.3);}
+.marker-sat{color:var(--purple);filter:drop-shadow(0 0 4px var(--purple));font-size:12px;transition:all .15s;}
+.marker-sat:hover{filter:drop-shadow(0 0 8px var(--purple));transform:scale(1.3);}
+.marker-inc{color:var(--red);filter:drop-shadow(0 0 4px var(--red));font-size:14px;transition:all .15s;}
+.marker-inc:hover{filter:drop-shadow(0 0 8px var(--red));transform:scale(1.3);}
+.marker-jam{color:var(--orange);filter:drop-shadow(0 0 4px var(--orange));font-size:13px;transition:all .15s;}
+.marker-jam:hover{filter:drop-shadow(0 0 8px var(--orange));transform:scale(1.3);}
+
+/* ── SCANLINE OVERLAY ── */
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(34,211,238,.005) 2px,rgba(34,211,238,.005) 3px);pointer-events:none;z-index:9998;animation:scanline-drift 8s linear infinite;}
+@keyframes scanline-drift{0%{background-position-y:0;}100%{background-position-y:6px;}}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(34,211,238,.15);border-radius:2px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(34,211,238,.3);}
+/* ── JAMMING ZONE CIRCLES ── */
+.jam-zone{stroke:var(--orange);stroke-width:2;fill:rgba(249,115,22,.08);stroke-dasharray:6 3;animation:jam-pulse 3s ease-in-out infinite;}
+@keyframes jam-pulse{0%,100%{opacity:.6;stroke-width:2;}50%{opacity:1;stroke-width:3;}}
+
+/* ── RESPONSIVE ── */
+@media(max-width:768px){
+  .streams-panel{width:220px;font-size:7px;}
+  .legend-panel{left:8px;min-width:180px;}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ BOOT SEQUENCE ═══ -->
+<div id="boot">
+  <div class="logo">SENTINEL</div>
+  <div class="bar-wrap"><div class="bar-fill" id="bootBar"></div></div>
+  <div class="status" id="bootStatus">INITIALIZING SYSTEMS…</div>
+</div>
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="topbar">
+  <div class="brand">SENTINEL</div>
+  <div class="sep"></div>
+  <div class="meta">v6.0 — AKA IND TECHNOLOGIES</div>
+  <div class="sep"></div>
+  <div class="meta" id="dateStr"></div>
+  <div class="spacer"></div>
+  <div class="conn-dot" id="connDot" title="Stream status"></div>
+  <div class="meta" id="connLabel" style="color:var(--green)">STREAMS ACTIVE</div>  <div class="sep"></div>
+  <div class="clock" id="clock"></div>
+</div>
+
+<!-- ═══ MAIN ═══ -->
+<div class="main">
+  <div id="map"></div>
+
+  <!-- LEGEND -->
+  <div class="legend-panel" id="legendPanel">
+    <div class="legend-title">LAYERS</div>
+    <div class="legend-item" data-layer="aircraft" onclick="toggleLayer('aircraft')">
+      <div class="swatch" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan);"></div>
+      <div class="lbl">Aircraft</div>
+      <div class="cnt" id="cnt-aircraft">0</div>
+      <div class="toggle"></div>
+    </div>
+    <div class="legend-item" data-layer="vessels" onclick="toggleLayer('vessels')">
+      <div class="swatch" style="background:var(--gold);box-shadow:0 0 6px var(--gold);"></div>
+      <div class="lbl">Vessels</div>
+      <div class="cnt" id="cnt-vessels">0</div>
+      <div class="toggle"></div>
+    </div>
+    <div class="legend-item" data-layer="satellites" onclick="toggleLayer('satellites')">
+      <div class="swatch" style="background:var(--purple);box-shadow:0 0 6px var(--purple);"></div>
+      <div class="lbl">Satellites</div>
+      <div class="cnt" id="cnt-satellites">0</div>
+      <div class="toggle"></div>
+    </div>
+    <div class="legend-item" data-layer="incidents" onclick="toggleLayer('incidents')">
+      <div class="swatch" style="background:var(--red);box-shadow:0 0 6px var(--red);"></div>      <div class="lbl">Incidents</div>
+      <div class="cnt" id="cnt-incidents">0</div>
+      <div class="toggle"></div>
+    </div>
+    <div class="legend-item" data-layer="jamming" onclick="toggleLayer('jamming')">
+      <div class="swatch" style="background:var(--orange);box-shadow:0 0 6px var(--orange);"></div>
+      <div class="lbl">GPS Jamming</div>
+      <div class="cnt" id="cnt-jamming">0</div>
+      <div class="toggle"></div>
+    </div>
+  </div>
+
+  <!-- DATA STREAMS -->
+  <div class="streams-panel" id="streamsPanel">
+    <div class="streams-title">DATA STREAMS</div>
+
+    <div class="stream-card" id="stream-opensky">
+      <div class="stream-head">
+        <div class="stream-dot live" id="dot-opensky"></div>
+        <div class="stream-name">OpenSky ADS-B</div>
+        <div class="stream-badge live" id="badge-opensky">LIVE</div>
+      </div>
+      <div class="stream-meta">Aircraft transponders · Eastern Europe bbox<br><span id="meta-opensky">Connecting…</span></div>
+      <div class="stream-bar"><div class="stream-bar-fill" id="bar-opensky" style="width:0%;background:var(--cyan);"></div></div>
+    </div>
+
+    <div class="stream-card" id="stream-ais">
+      <div class="stream-head">
+        <div class="stream-dot sim" id="dot-ais"></div>
+        <div class="stream-name">AIS Maritime</div>        <div class="stream-badge sim" id="badge-ais">SIM</div>
+      </div>
+      <div class="stream-meta">Vessel positions · Black Sea + Mediterranean<br><span id="meta-ais">Simulated feed active</span></div>
+      <div class="stream-bar"><div class="stream-bar-fill" id="bar-ais" style="width:0%;background:var(--gold);"></div></div>
+    </div>
+
+    <div class="stream-card" id="stream-celestrak">
+      <div class="stream-head">
+        <div class="stream-dot sim" id="dot-celestrak"></div>
+        <div class="stream-name">CelesTrak TLE</div>
+        <div class="stream-badge sim" id="badge-celestrak">SIM</div>
+      </div>
+      <div class="stream-meta">Active satellite orbits · LEO/GEO<br><span id="meta-celestrak">Simulated positions</span></div>
+      <div class="stream-bar"><div class="stream-bar-fill" id="bar-celestrak" style="width:0%;background:var(--purple);"></div></div>
+    </div>
+
+    <div class="stream-card" id="stream-gpsjam">
+      <div class="stream-head">
+        <div class="stream-dot live" id="dot-gpsjam"></div>
+        <div class="stream-name">GPSJam GNSS</div>
+        <div class="stream-badge live" id="badge-gpsjam">LIVE</div>
+      </div>
+      <div class="stream-meta">GPS interference zones · Global<br><span id="meta-gpsjam">Connecting…</span></div>
+      <div class="stream-bar"><div class="stream-bar-fill" id="bar-gpsjam" style="width:0%;background:var(--orange);"></div></div>
+    </div>
+
+    <div class="stream-card" id="stream-osint">
+      <div class="stream-head">
+        <div class="stream-dot sim" id="dot-osint"></div>
+        <div class="stream-name">OSINT Incidents</div>
+        <div class="stream-badge sim" id="badge-osint">SIM</div>      </div>
+      <div class="stream-meta">Conflict events · Eastern Europe<br><span id="meta-osint">Generating events</span></div>
+      <div class="stream-bar"><div class="stream-bar-fill" id="bar-osint" style="width:0%;background:var(--red);"></div></div>
+    </div>
+
+    <!-- ACTIVITY FEED -->
+    <div class="feed-section">
+      <div class="feed-title">STREAM ACTIVITY</div>
+      <div id="feedList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ STATS BAR ═══ -->
+<div class="statsbar">
+  <div class="stat"><div class="stat-dot" style="background:var(--cyan);"></div><span class="stat-label">Aircraft</span><span class="stat-val" id="stat-ac">0</span></div>
+  <div class="stat"><div class="stat-dot" style="background:var(--gold);"></div><span class="stat-label">Vessels</span><span class="stat-val" id="stat-nv">0</span></div>
+  <div class="stat"><div class="stat-dot" style="background:var(--purple);"></div><span class="stat-label">Satellites</span><span class="stat-val" id="stat-sat">0</span></div>
+  <div class="stat"><div class="stat-dot" style="background:var(--red);"></div><span class="stat-label">Incidents</span><span class="stat-val" id="stat-inc">0</span></div>
+  <div class="stat"><div class="stat-dot" style="background:var(--orange);"></div><span class="stat-label">Jam Zones</span><span class="stat-val" id="stat-jam">0</span></div>
+  <div class="spacer"></div>
+  <div class="stat"><span class="stat-label">Tracks</span><span class="stat-val" id="stat-total">0</span></div>
+  <div class="osint-tag">OSINT UNCLASSIFIED · ALL SOURCES PUBLICLY AVAILABLE</div>
+</div>
+
+<!-- ═══ SCRIPTS ═══ -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ═══════════════════════════════════════════════
+   SENTINEL v6 — Enhanced Intelligence Dashboard
+   AKA IND Technologies · 2026
+   ═══════════════════════════════════════════════ */
+// ── BOOT SEQUENCE ──
+const bootSteps = [
+  ['LOADING MAP TILES…', 15],
+  ['INITIALIZING LEAFLET ENGINE…', 30],
+  ['CONNECTING OPENSKY ADS-B…', 50],
+  ['CONNECTING AIS MARITIME FEED…', 62],
+  ['LOADING SATELLITE CATALOG…', 75],
+  ['SCANNING GPS JAMMING ZONES…', 88],
+  ['ACTIVATING STREAM MONITORS…', 95],
+  ['SYSTEMS NOMINAL — LAUNCHING', 100]
+];
+let bootIdx = 0;
+function runBoot() {
+  if (bootIdx >= bootSteps.length) {
+    document.getElementById('boot').classList.add('done');
+    setTimeout(() => document.getElementById('boot').style.display = 'none', 700);
+    initDashboard();
+    return;
+  }
+  const [msg, pct] = bootSteps[bootIdx];
+  document.getElementById('bootStatus').textContent = msg;
+  document.getElementById('bootBar').style.width = pct + '%';
+  bootIdx++;
+  setTimeout(runBoot, 280 + Math.random() * 180);
+}
+setTimeout(runBoot, 400);
+
+// ── CLOCK ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toISOString().replace('T', ' ').slice(0, 19) + 'Z';
+  document.getElementById('dateStr').textContent = now.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+}setInterval(updateClock, 1000);
+updateClock();
+
+// ── STATE ──
+const state = {
+  layers: { aircraft: true, vessels: true, satellites: true, incidents: true, jamming: true },
+  counts: { aircraft: 0, vessels: 0, satellites: 0, incidents: 0, jamming: 0 },
+  markers: { aircraft: [], vessels: [], satellites: [], incidents: [], jamming: [] },
+  layerGroups: {},
+  feedItems: [],
+  map: null,
+  refreshTimers: {}
+};
+
+// ── MAP INIT ──
+function initDashboard() {
+  const map = L.map('map', {
+    center: [46.0, 32.0],
+    zoom: 5,
+    zoomControl: true,
+    attributionControl: false,
+    preferCanvas: true
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 18,
+    subdomains: 'abcd'
+  }).addTo(map);
+
+  state.map = map;
+  // Create layer groups
+  ['aircraft', 'vessels', 'satellites', 'incidents', 'jamming'].forEach(key => {
+    state.layerGroups[key] = L.layerGroup().addTo(map);
+  });
+
+  // Start all data streams
+  fetchOpenSky();
+  generateAIS();
+  generateSatellites();
+  generateIncidents();
+  generateJammingZones();
+
+  // Set refresh intervals
+  state.refreshTimers.opensky = setInterval(fetchOpenSky, 15000);
+  state.refreshTimers.ais = setInterval(generateAIS, 30000);
+  state.refreshTimers.satellites = setInterval(generateSatellites, 60000);
+  state.refreshTimers.incidents = setInterval(generateIncidents, 45000);
+}
+
+// ── FEED LOGGER ──
+function addFeed(icon, msg, color) {
+  const now = new Date();
+  const time = now.toTimeString().slice(0, 5);
+  const list = document.getElementById('feedList');
+  const item = document.createElement('div');
+  item.className = 'feed-item';
+  item.innerHTML = `<span class="feed-time">${time}</span><span class="feed-icon">${icon}</span><span class="feed-msg" style="color:${color || 'var(--sub)'}">${msg}</span>`;
+  list.prepend(item);
+  if (list.children.length > 40) list.removeChild(list.lastChild);
+}
+// ── LAYER TOGGLE ──
+function toggleLayer(key) {
+  state.layers[key] = !state.layers[key];
+  const item = document.querySelector(`.legend-item[data-layer="${key}"]`);
+  if (state.layers[key]) {
+    item.classList.remove('off');
+    state.map.addLayer(state.layerGroups[key]);
+  } else {
+    item.classList.add('off');
+    state.map.removeLayer(state.layerGroups[key]);
+  }
+}
+
+function updateCount(key, count) {
+  state.counts[key] = count;
+  document.getElementById('cnt-' + key).textContent = count;
+  const statMap = { aircraft: 'ac', vessels: 'nv', satellites: 'sat', incidents: 'inc', jamming: 'jam' };
+  document.getElementById('stat-' + statMap[key]).textContent = count;
+  const total = Object.values(state.counts).reduce((a, b) => a + b, 0);
+  document.getElementById('stat-total').textContent = total;
+}
+
+// ── POPUP BUILDER ──
+function buildPopup(title, rows, color) {
+  let html = `<div class="pop-title" style="color:${color}">${title}</div>`;
+  rows.forEach(([label, val]) => {
+    html += `<div class="pop-row"><span class="pop-label">${label}</span><span class="pop-val">${val}</span></div>`;
+  });
+  return html;
+}
+// ── STREAM STATUS ──
+function setStreamStatus(id, status) {
+  const dot = document.getElementById('dot-' + id);
+  const badge = document.getElementById('badge-' + id);
+  dot.className = 'stream-dot ' + status;
+  if (status === 'live') {
+    badge.className = 'stream-badge live';
+    badge.textContent = 'LIVE';
+  } else if (status === 'stale') {
+    badge.className = 'stream-badge sim';
+    badge.textContent = 'STALE';
+  } else if (status === 'dead') {
+    badge.textContent = 'DOWN';
+  }
+}
+
+function setStreamBar(id, pct) {
+  document.getElementById('bar-' + id).style.width = Math.min(100, pct) + '%';
+}
+
+// ══════════════════════════════════════
+// DATA STREAM 1: OpenSky ADS-B (LIVE)
+// ══════════════════════════════════════
+async function fetchOpenSky() {
+  const meta = document.getElementById('meta-opensky');
+  meta.textContent = 'Fetching…';
+  setStreamBar('opensky', 30);
+
+  try {
+    const url = 'https://opensky-network.org/api/states/all?lamin=38&lamax=56&lomin=20&lomax=45';
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);    const data = await resp.json();
+
+    const lg = state.layerGroups.aircraft;
+    lg.clearLayers();
+    setStreamBar('opensky', 70);
+
+    const states = (data.states || []).slice(0, 200);
+    states.forEach(s => {
+      const [icao24, callsign, country, , , lon, lat, alt, onGround, vel, heading] = s;
+      if (lat == null || lon == null) return;
+
+      const altFt = alt ? Math.round(alt * 3.28084) : 'N/A';
+      const velKts = vel ? Math.round(vel * 1.94384) : 'N/A';
+      const hdg = heading ? Math.round(heading) : 0;
+      const cs = (callsign || '').trim() || icao24;
+
+      const icon = L.divIcon({
+        className: 'marker-ac',
+        html: `<div style="transform:rotate(${hdg}deg);font-size:14px;">✈</div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9]
+      });
+
+      const marker = L.marker([lat, lon], { icon }).bindPopup(
+        buildPopup('✈ ' + cs, [
+          ['ICAO', icao24.toUpperCase()],
+          ['Origin', country || 'Unknown'],
+          ['Altitude', altFt + ' ft'],
+          ['Speed', velKts + ' kts'],
+          ['Heading', hdg + '°'],
+          ['On Ground', onGround ? 'YES' : 'NO']
+        ], 'var(--cyan)')
+      );
+      lg.addLayer(marker);    });
+
+    const count = lg.getLayers().length;
+    updateCount('aircraft', count);
+    setStreamStatus('opensky', 'live');
+    setStreamBar('opensky', 100);
+    meta.textContent = `${count} aircraft · Last: ${new Date().toTimeString().slice(0, 8)}`;
+    addFeed('✈', `OpenSky: ${count} aircraft in bbox`, 'var(--cyan)');
+    setTimeout(() => setStreamBar('opensky', 60), 3000);
+
+  } catch (err) {
+    console.warn('OpenSky fetch failed, falling back to simulated:', err.message);
+    meta.textContent = 'API unavailable — using simulated data';
+    setStreamStatus('opensky', 'stale');
+    setStreamBar('opensky', 100);
+    generateSimAircraft();
+    addFeed('⚠', `OpenSky unavailable: ${err.message}`, 'var(--gold)');
+  }
+}
+
+// Fallback simulated aircraft
+function generateSimAircraft() {
+  const lg = state.layerGroups.aircraft;
+  lg.clearLayers();
+  const airlines = ['UAL','DLH','AFL','THY','LOT','AUI','BTI','AZA','KLM','SAS','BAW','SVA','QTR','ELY','FIN'];
+  const countries = ['United States','Germany','Russia','Turkey','Poland','Ukraine','Latvia','Italy','Netherlands','Sweden','UK','Saudi Arabia','Qatar','Israel','Finland'];
+
+  for (let i = 0; i < 65; i++) {
+    const lat = 38 + Math.random() * 18;
+    const lon = 20 + Math.random() * 25;
+    const alt = Math.round(15000 + Math.random() * 30000);
+    const vel = Math.round(280 + Math.random() * 250);
+    const hdg = Math.round(Math.random() * 360);
+    const idx = Math.floor(Math.random() * airlines.length);    const cs = airlines[idx] + Math.round(100 + Math.random() * 8900);
+
+    const icon = L.divIcon({
+      className: 'marker-ac',
+      html: `<div style="transform:rotate(${hdg}deg);font-size:14px;">✈</div>`,
+      iconSize: [18, 18], iconAnchor: [9, 9]
+    });
+
+    L.marker([lat, lon], { icon }).bindPopup(
+      buildPopup('✈ ' + cs, [
+        ['ICAO', (Math.random().toString(16).slice(2, 8)).toUpperCase()],
+        ['Origin', countries[idx]],
+        ['Altitude', alt + ' ft'],
+        ['Speed', vel + ' kts'],
+        ['Heading', hdg + '°'],
+        ['On Ground', 'NO']
+      ], 'var(--cyan)')
+    ).addTo(lg);
+  }
+  updateCount('aircraft', lg.getLayers().length);
+  document.getElementById('meta-opensky').textContent = `${lg.getLayers().length} aircraft (sim) · ${new Date().toTimeString().slice(0, 8)}`;
+}
+
+// ══════════════════════════════════════
+// DATA STREAM 2: AIS Maritime (SIM)
+// ══════════════════════════════════════
+function generateAIS() {
+  const lg = state.layerGroups.vessels;
+  lg.clearLayers();
+
+  const types = ['Cargo','Tanker','Container','Bulk Carrier','LNG Carrier','Fishing','Patrol','Ro-Ro','Tug','Cruise'];
+  const flags = ['🇹🇷 Turkey','🇬🇷 Greece','🇺🇦 Ukraine','🇷🇺 Russia','🇬🇪 Georgia','🇷🇴 Romania','🇧🇬 Bulgaria','🇮🇹 Italy','🇲🇹 Malta','🇵🇦 Panama'];  const routes = [
+    { name: 'Bosphorus Transit', lat: [40.5, 41.5], lon: [28.5, 29.5] },
+    { name: 'Black Sea North', lat: [44, 46.5], lon: [30, 37] },
+    { name: 'Black Sea South', lat: [41, 43], lon: [28, 41] },
+    { name: 'Aegean Sea', lat: [36, 39], lon: [23, 27] },
+    { name: 'East Med', lat: [33, 36], lon: [28, 35] },
+    { name: 'Odesa Approaches', lat: [45.5, 46.8], lon: [30, 32] }
+  ];
+
+  for (let i = 0; i < 40; i++) {
+    const route = routes[Math.floor(Math.random() * routes.length)];
+    const lat = route.lat[0] + Math.random() * (route.lat[1] - route.lat[0]);
+    const lon = route.lon[0] + Math.random() * (route.lon[1] - route.lon[0]);
+    const type = types[Math.floor(Math.random() * types.length)];
+    const flag = flags[Math.floor(Math.random() * flags.length)];
+    const mmsi = String(200000000 + Math.floor(Math.random() * 500000000));
+    const speed = (2 + Math.random() * 18).toFixed(1);
+    const name = ['OCEAN','SEA','STAR','BLACK','GOLDEN','NORD','BOSPHOR','AEGEAN'][Math.floor(Math.random() * 8)] + ' ' + ['SPIRIT','VOYAGER','PRIDE','DREAM','FORTUNE','PEARL','WAVE','BREEZE'][Math.floor(Math.random() * 8)];
+
+    const icon = L.divIcon({
+      className: 'marker-nv',
+      html: '⛴',
+      iconSize: [16, 16], iconAnchor: [8, 8]
+    });
+
+    L.marker([lat, lon], { icon }).bindPopup(
+      buildPopup('⛴ ' + name, [
+        ['MMSI', mmsi],
+        ['Type', type],
+        ['Flag', flag],
+        ['Speed', speed + ' kts'],
+        ['Route', route.name],
+        ['Draft', (4 + Math.random() * 12).toFixed(1) + ' m']      ], 'var(--gold)')
+    ).addTo(lg);
+  }
+
+  updateCount('vessels', lg.getLayers().length);
+  document.getElementById('meta-ais').textContent = `${lg.getLayers().length} vessels · ${new Date().toTimeString().slice(0, 8)}`;
+  setStreamBar('ais', 100);
+  addFeed('⛴', `AIS: ${lg.getLayers().length} vessels plotted`, 'var(--gold)');
+  setTimeout(() => setStreamBar('ais', 50), 2000);
+}
+
+// ══════════════════════════════════════
+// DATA STREAM 3: Satellites (SIM)
+// ══════════════════════════════════════
+function generateSatellites() {
+  const lg = state.layerGroups.satellites;
+  lg.clearLayers();
+
+  const sats = [
+    { name: 'ISS (ZARYA)', norad: 25544, type: 'Space Station' },
+    { name: 'STARLINK-1234', norad: 46001, type: 'LEO Comms' },
+    { name: 'STARLINK-5678', norad: 51234, type: 'LEO Comms' },
+    { name: 'COSMOS 2558', norad: 53328, type: 'Military Recon' },
+    { name: 'USA 326', norad: 54234, type: 'Military Classified' },
+    { name: 'LUCH (OLYMP-K)', norad: 40258, type: 'GEO SIGINT' },
+    { name: 'SENTINEL-2B', norad: 42063, type: 'Earth Observation' },
+    { name: 'GLOBALSTAR M089', norad: 40269, type: 'LEO Comms' },
+    { name: 'COSMOS 2542', norad: 44797, type: 'Inspector Sat' },
+    { name: 'YAOGAN-35A', norad: 52780, type: 'Military Recon' },
+    { name: 'MERIDIAN 9', norad: 49149, type: 'Military Comms' },
+    { name: 'GPS IIF-12', norad: 41019, type: 'Navigation' },    { name: 'MUOS-5', norad: 41622, type: 'Military Comms' },
+    { name: 'TURKSAT 5B', norad: 50809, type: 'GEO Comms' },
+    { name: 'SICH-2-1', norad: 49450, type: 'Earth Observation' }
+  ];
+
+  sats.forEach(sat => {
+    const lat = 25 + Math.random() * 40;
+    const lon = 10 + Math.random() * 50;
+    const alt = sat.type.includes('GEO') ? 35786 : (200 + Math.random() * 1800);
+    const vel = sat.type.includes('GEO') ? 3.07 : (7.2 + Math.random() * 0.6);
+
+    const icon = L.divIcon({
+      className: 'marker-sat',
+      html: '🛰',
+      iconSize: [14, 14], iconAnchor: [7, 7]
+    });
+
+    L.marker([lat, lon], { icon }).bindPopup(
+      buildPopup('🛰 ' + sat.name, [
+        ['NORAD', String(sat.norad)],
+        ['Type', sat.type],
+        ['Altitude', Math.round(alt) + ' km'],
+        ['Velocity', vel.toFixed(2) + ' km/s'],
+        ['Orbit', sat.type.includes('GEO') ? 'Geostationary' : 'LEO']
+      ], 'var(--purple)')
+    ).addTo(lg);
+  });
+
+  updateCount('satellites', lg.getLayers().length);
+  document.getElementById('meta-celestrak').textContent = `${lg.getLayers().length} satellites · ${new Date().toTimeString().slice(0, 8)}`;
+  setStreamBar('celestrak', 100);
+  addFeed('🛰', `CelesTrak: ${lg.getLayers().length} satellites tracked`, 'var(--purple)');
+  setTimeout(() => setStreamBar('celestrak', 40), 2000);
+}
+// ══════════════════════════════════════
+// DATA STREAM 4: Incidents (SIM)
+// ══════════════════════════════════════
+function generateIncidents() {
+  const lg = state.layerGroups.incidents;
+  lg.clearLayers();
+
+  const incidents = [
+    { title: 'Artillery exchange reported', lat: 48.3, lon: 37.8, sev: 'HIGH', src: 'OSINT / Telegram' },
+    { title: 'UAV strike confirmed', lat: 47.1, lon: 36.2, sev: 'HIGH', src: 'Satellite imagery' },
+    { title: 'Military convoy movement', lat: 50.4, lon: 30.5, sev: 'MEDIUM', src: 'Open source' },
+    { title: 'Naval activity increase', lat: 44.6, lon: 33.5, sev: 'MEDIUM', src: 'AIS correlation' },
+    { title: 'Airspace restriction NOTAM', lat: 49.8, lon: 24.0, sev: 'LOW', src: 'EUROCONTROL' },
+    { title: 'Cyber incident reported', lat: 50.4, lon: 30.5, sev: 'MEDIUM', src: 'CERT-UA' },
+    { title: 'Border crossing surge', lat: 51.5, lon: 23.5, sev: 'LOW', src: 'Frontex' },
+    { title: 'Explosion detected (seismic)', lat: 47.8, lon: 35.1, sev: 'HIGH', src: 'Seismic monitors' },
+    { title: 'EW activity detected', lat: 48.5, lon: 38.0, sev: 'HIGH', src: 'RF monitoring' },
+    { title: 'Refugee movement spike', lat: 46.2, lon: 30.7, sev: 'LOW', src: 'UNHCR' }
+  ];
+
+  incidents.forEach(inc => {
+    const lat = inc.lat + (Math.random() - 0.5) * 0.8;
+    const lon = inc.lon + (Math.random() - 0.5) * 0.8;
+    const sevColor = inc.sev === 'HIGH' ? 'var(--red)' : inc.sev === 'MEDIUM' ? 'var(--gold)' : 'var(--sub)';
+
+    const icon = L.divIcon({
+      className: 'marker-inc',
+      html: inc.sev === 'HIGH' ? '🔴' : inc.sev === 'MEDIUM' ? '🟡' : '🔵',
+      iconSize: [14, 14], iconAnchor: [7, 7]
+    });
+    L.marker([lat, lon], { icon }).bindPopup(
+      buildPopup('⚠ ' + inc.title, [
+        ['Severity', inc.sev],
+        ['Source', inc.src],
+        ['Time', new Date(Date.now() - Math.random() * 86400000).toISOString().slice(0, 16).replace('T', ' ') + 'Z'],
+        ['Coords', lat.toFixed(3) + '°N ' + lon.toFixed(3) + '°E']
+      ], sevColor)
+    ).addTo(lg);
+  });
+
+  updateCount('incidents', lg.getLayers().length);
+  document.getElementById('meta-osint').textContent = `${lg.getLayers().length} events · ${new Date().toTimeString().slice(0, 8)}`;
+  setStreamBar('osint', 100);
+  addFeed('⚠', `OSINT: ${lg.getLayers().length} incidents plotted`, 'var(--red)');
+  setTimeout(() => setStreamBar('osint', 35), 2000);
+}
+
+// ══════════════════════════════════════
+// DATA STREAM 5: GPS Jamming Zones
+// ══════════════════════════════════════
+function generateJammingZones() {
+  const lg = state.layerGroups.jamming;
+  lg.clearLayers();
+
+  const zones = [
+    { name: 'Kaliningrad Oblast', lat: 54.7, lon: 20.5, radius: 180000, level: 'HIGH' },
+    { name: 'Eastern Ukraine', lat: 48.5, lon: 38.0, radius: 220000, level: 'CRITICAL' },
+    { name: 'Crimea', lat: 45.3, lon: 34.0, radius: 160000, level: 'HIGH' },
+    { name: 'Syria / Latakia', lat: 35.5, lon: 35.8, radius: 140000, level: 'HIGH' },    { name: 'Baltic Sea', lat: 57.5, lon: 20.0, radius: 120000, level: 'MEDIUM' },
+    { name: 'Black Sea West', lat: 43.5, lon: 30.5, radius: 100000, level: 'MEDIUM' },
+    { name: 'Donbas Front', lat: 48.0, lon: 37.5, radius: 130000, level: 'CRITICAL' },
+    { name: 'Belarus South', lat: 52.0, lon: 28.0, radius: 90000, level: 'LOW' }
+  ];
+
+  zones.forEach(z => {
+    const color = z.level === 'CRITICAL' ? '#ef4444' : z.level === 'HIGH' ? '#f97316' : z.level === 'MEDIUM' ? '#f59e0b' : '#3b82f6';
+    const fillOpacity = z.level === 'CRITICAL' ? 0.12 : z.level === 'HIGH' ? 0.08 : 0.05;
+
+    const circle = L.circle([z.lat, z.lon], {
+      radius: z.radius,
+      color: color,
+      weight: 2,
+      opacity: 0.7,
+      fillColor: color,
+      fillOpacity: fillOpacity,
+      dashArray: '8 4',
+      className: 'jam-zone'
+    }).bindPopup(
+      buildPopup('📡 ' + z.name + ' — GPS JAMMING', [
+        ['Threat Level', z.level],
+        ['Radius', Math.round(z.radius / 1000) + ' km'],
+        ['Type', 'GNSS Interference'],
+        ['Affected', 'GPS L1/L2, GLONASS'],
+        ['First Detected', '2024-02']
+      ], color)
+    );
+
+    lg.addLayer(circle);
+    // Add center marker
+    const icon = L.divIcon({
+      className: 'marker-jam',
+      html: '📡',
+      iconSize: [14, 14], iconAnchor: [7, 7]
+    });
+    L.marker([z.lat, z.lon], { icon }).bindPopup(
+      buildPopup('📡 ' + z.name, [
+        ['Level', z.level],
+        ['Radius', Math.round(z.radius / 1000) + ' km']
+      ], color)
+    ).addTo(lg);
+  });
+
+  updateCount('jamming', zones.length);
+  document.getElementById('meta-gpsjam').textContent = `${zones.length} zones · ${new Date().toTimeString().slice(0, 8)}`;
+  setStreamBar('gpsjam', 100);
+  setStreamStatus('gpsjam', 'live');
+  addFeed('📡', `GPSJam: ${zones.length} interference zones`, 'var(--orange)');
+  setTimeout(() => setStreamBar('gpsjam', 70), 2000);
+}
+
+// ── GLOBAL CONNECTION STATUS ──
+setInterval(() => {
+  const anyLive = true;
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  if (anyLive) {
+    dot.style.background = 'var(--green)';
+    dot.style.boxShadow = '0 0 8px var(--green)';
+    label.style.color = 'var(--green)';
+    label.textContent = 'STREAMS ACTIVE';
+  }
+}, 5000);
+</script>
+</body>
+</html>
