@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: '5 0 * * *'
 
+  # Trigger on push to main or feature branches
+  push:
+    branches: [main, 'claude/**']
+
   # Manual trigger — run anytime from GitHub Actions tab
   workflow_dispatch:
     inputs:
@@ -42,10 +46,10 @@ jobs:
 
       - name: Run SENTINEL brief pipeline
         env:
-          NOTION_API_KEY:    ${{ secrets.NOTION_API_KEY }}
-          NOTION_PARENT_ID:  ${{ secrets.NOTION_PARENT_ID }}
-          AIS_API_KEY:       ${{ secrets.AIS_API_KEY }}
-          CELESTRAK_API_KEY: ${{ secrets.CELESTRAK_API_KEY }}
+          NOTION_API_KEY:       ${{ secrets.NOTION_API_KEY }}
+          NOTION_PARENT_ID:     ${{ secrets.NOTION_PARENT_ID }}
+          OPENSKY_CLIENT_ID:    ${{ secrets.OPENSKY_CLIENT_ID }}
+          OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
         run: |
           DATE_FLAG=""
           DRY_FLAG=""
@@ -70,4 +74,16 @@ jobs:
       - name: Notify on failure
         if: failure()
         run: |
-          echo "::error::SENTINEL brief pipeline failed. Check OpenSky/GPSJam connectivity and Notion API key."
+          echo "::error::SENTINEL brief pipeline failed."
+          echo "::error::Check: (1) Notion API key validity (2) OpenSky/GPSJam connectivity (3) Notion parent page permissions"
+          echo "::error::Run manually with dry_run=true to isolate the issue."
+
+      - name: Publish data to GitHub Pages
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        run: |
+          git config user.name "sentinel-bot"
+          git config user.email "sentinel-bot@users.noreply.github.com"
+          git add data/latest.json || true
+          echo "Scheduled run completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> data/heartbeat.log
+          git add data/heartbeat.log || true
+          git diff --staged --quiet || (git commit -m "data: daily brief $(date -u +%Y-%m-%d)" && git push) || true
