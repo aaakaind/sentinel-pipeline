@@ -16,7 +16,6 @@ Env vars required:
     NOTION_PARENT_ID    — page or database ID to create briefs under
 """
 
-import re
 import os
 import sys
 import json
@@ -25,6 +24,7 @@ import logging
 import argparse
 import csv
 import re
+import html as html_mod
 from datetime import datetime, timezone, timedelta
 from io import StringIO
 from typing import Optional
@@ -1365,7 +1365,9 @@ def _md_to_notion_blocks(md: str) -> list:
                 "has_column_header": True,
                 "has_row_header": False,
                 "children": table_rows
-                rows.append(cells)
+            }
+        }
+
     def _parse_html_table(lines: list) -> dict:
         """Parse our HTML <table> rows into a Notion table."""
         rows = []
@@ -1408,12 +1410,13 @@ def _md_to_notion_blocks(md: str) -> list:
             color_m = re.search(r'color="(.+?)"', stripped)
             icon = icon_m.group(1) if icon_m else "💡"
             color_raw = color_m.group(1) if color_m else "gray_bg"
+            co_color = _color_map.get(color_raw, "gray_background")
             callout_lines = []
             i += 1
             while i < len(all_lines) and all_lines[i].strip() != ":::":
                 callout_lines.append(all_lines[i].strip())
                 i += 1
-            blocks.append(_callout(callout_lines, icon=icon, color=color))
+            blocks.append(_callout(callout_lines, icon=icon, color=co_color))
             i += 1  # skip closing :::
             continue
 
