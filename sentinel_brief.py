@@ -1189,7 +1189,7 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     d = datetime.strptime(brief_date, "%Y-%m-%d")
     title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
 
-    blocks = _md_to_notion_blocks(content)
+    blocks = md_to_notion_blocks(content)
 
     if dry_run:
         log.info("── DRY RUN ── Notion page would be created:")
@@ -1222,32 +1222,23 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
 
     log.info(f"Posting to Notion: '{title}'...")
     r = HTTP.post("https://api.notion.com/v1/pages",
-                  headers=headers, json=payload, timeout=30)
-    if r.status_code == 200:
-        page = r.json()
-        url  = page.get("url", "")
-        log.info(f"Created: {url}")
-        return url
-    else:
+                  headers=headers, json=page_payload, timeout=30)
+
+    # If parent_id might actually be a database, retry with database_id
+    if r.status_code == 400 and "page_id" in r.text:
+        log.info("Retrying with database_id instead of page_id...")
+        page_payload["parent"] = {"database_id": NOTION_PARENT_ID}
+        r = HTTP.post("https://api.notion.com/v1/pages",
+                      headers=headers, json=page_payload, timeout=30)
+
+    if r.status_code != 200:
         log.error(f"Notion API error {r.status_code}: {r.text[:500]}")
-        # If parent_id might be a database, retry with database_id
-        if r.status_code == 400 and "page_id" in r.text:
-            log.info("Retrying with database_id instead of page_id...")
-            payload["parent"] = {"database_id": NOTION_PARENT_ID}
-            r2 = HTTP.post("https://api.notion.com/v1/pages",
-                           headers=headers, json=payload, timeout=30)
-            if r2.status_code == 200:
-                page = r2.json()
-                url  = page.get("url", "")
-                log.info(f"Created (via database parent): {url}")
-                return url
-            log.error(f"Notion retry error {r2.status_code}: {r2.text[:500]}")
         return None
 
     page = r.json()
     page_id = page.get("id", "")
     url = page.get("url", "")
-    log.info(f"✅ Created: {url}")
+    log.info(f"Created: {url}")
 
     # Append remaining blocks in batches of 100
     remaining = blocks[100:]
@@ -1256,7 +1247,7 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         batch = remaining[:100]
         remaining = remaining[100:]
         try:
-            r2 = requests.patch(
+            r2 = HTTP.patch(
                 f"https://api.notion.com/v1/blocks/{page_id}/children",
                 headers=headers, json={"children": batch}, timeout=30)
             if r2.ok:
@@ -1269,222 +1260,8 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
             break
         batch_num += 1
 
-def _md_to_notion_blocks(md: str) -> list:
-    """Convert our generated markdown into proper Notion API block objects."""
-    blocks = []
+    return url
 
-    def _rt(text: str, bold: bool = False) -> list:
-        """Create a rich_text array, handling **bold** markers."""
-        segments = []
-        parts = re.split(r'(\*\*.*?\*\*)', text)
-        for part in parts:
-            if not part:
-                continue
-            if part.startswith("**") and part.endswith("**"):
-                segments.append({
-                    "type": "text",
-                    "text": {"content": part[2:-2][:2000]},
-                    "annotations": {"bold": True}
-                })
-            else:
-                ann = {"bold": True} if bold else {}
-                seg = {"type": "text", "text": {"content": part[:2000]}}
-                if ann:
-                    seg["annotations"] = ann
-                segments.append(seg)
-        return segments or [{"type": "text", "text": {"content": ""}}]
-
-    def _paragraph(text: str) -> dict:
-        return {"object": "block", "type": "paragraph",
-                "paragraph": {"rich_text": _rt(text)}}
-
-    def _heading(text: str, level: int) -> dict:
-        key = f"heading_{min(level, 3)}"
-        clean = re.sub(r'^#+\s*', '', text).strip()
-        return {"object": "block", "type": key, key: {"rich_text": _rt(clean)}}
-
-    def _divider() -> dict:
-        return {"object": "block", "type": "divider", "divider": {}}
-
-    def _callout(lines: list, icon: str = "💡", color: str = "gray_background") -> dict:
-        body = "\n".join(lines)
-        return {
-            "object": "block", "type": "callout",
-            "callout": {
-                "rich_text": _rt(body),
-                "icon": {"type": "emoji", "emoji": icon},
-                "color": color,
-            }
-        }
-
-    def _bulleted(text: str) -> dict:
-        clean = re.sub(r'^[-*]\s*', '', text).strip()
-        # Handle checkbox-style items
-        clean = re.sub(r'^\[.\]\s*', '', clean)
-        return {"object": "block", "type": "bulleted_list_item",
-                "bulleted_list_item": {"rich_text": _rt(clean)}}
-
-    def _numbered(text: str) -> dict:
-        clean = re.sub(r'^\d+\.\s*', '', text).strip()
-        return {"object": "block", "type": "numbered_list_item",
-                "numbered_list_item": {"rich_text": _rt(clean)}}
-
-    def _toggle(summary: str, children_text: list) -> dict:
-        child_blocks = []
-        for ct in children_text:
-            ct = ct.strip()
-            if ct:
-                child_blocks.append(_paragraph(ct))
-        return {
-            "object": "block", "type": "toggle",
-            "toggle": {
-                "rich_text": _rt(summary),
-                "children": child_blocks or [_paragraph("(empty)")]
-            }
-        }
-
-    def _table_from_rows(rows: list) -> dict:
-        """Build a Notion table block from parsed row data."""
-        if not rows:
-            return _paragraph("(empty table)")
-        width = max(len(r) for r in rows)
-        table_rows = []
-        for row in rows:
-            cells = []
-            for i in range(width):
-                cell_text = row[i].strip() if i < len(row) else ""
-                cells.append([{"type": "text", "text": {"content": cell_text[:2000]}}])
-            table_rows.append({
-                "object": "block", "type": "table_row",
-                "table_row": {"cells": cells}
-            })
-        return {
-            "object": "block", "type": "table",
-            "table": {
-                "table_width": width,
-                "has_column_header": True,
-                "has_row_header": False,
-                "children": table_rows
-            }
-        }
-
-    def _parse_html_table(lines: list) -> dict:
-        """Parse our HTML <table> rows into a Notion table."""
-        rows = []
-        for line in lines:
-            cells = re.findall(r'<td>(.*?)</td>', line)
-            if cells:
-                # Strip bold markers for clean table content
-                clean_cells = [re.sub(r'\*\*', '', c) for c in cells]
-                rows.append(clean_cells)
-        return _table_from_rows(rows) if rows else _paragraph("(empty table)")
-
-    # ── COLOR MAPPING ──
-    _color_map = {
-        "gray_bg": "gray_background", "red_bg": "red_background",
-        "orange_bg": "orange_background", "yellow_bg": "yellow_background",
-        "green_bg": "green_background", "blue_bg": "blue_background",
-    }
-
-    # ── MAIN PARSE LOOP ──
-    all_lines = md.split("\n")
-    i = 0
-    while i < len(all_lines) and len(blocks) < 98:
-        line = all_lines[i]
-        stripped = line.strip()
-
-        # Skip empty lines
-        if not stripped:
-            i += 1
-            continue
-
-        # Divider
-        if stripped == "---":
-            blocks.append(_divider())
-            i += 1
-            continue
-
-        # Callout block  ::: callout {icon="X" color="Y"}
-        if stripped.startswith('::: callout'):
-            icon_m = re.search(r'icon="(.+?)"', stripped)
-            color_m = re.search(r'color="(.+?)"', stripped)
-            icon = icon_m.group(1) if icon_m else "💡"
-            color_raw = color_m.group(1) if color_m else "gray_bg"
-            co_color = _color_map.get(color_raw, "gray_background")
-            callout_lines = []
-            i += 1
-            while i < len(all_lines) and all_lines[i].strip() != ":::":
-                callout_lines.append(all_lines[i].strip())
-                i += 1
-            blocks.append(_callout(callout_lines, icon=icon, color=co_color))
-            i += 1  # skip closing :::
-            continue
-
-        # HTML table
-        if stripped.startswith('<table'):
-            table_lines = []
-            i += 1
-            while i < len(all_lines) and not all_lines[i].strip().startswith('</table'):
-                table_lines.append(all_lines[i])
-                i += 1
-            blocks.append(_parse_html_table(table_lines))
-            i += 1  # skip </table>
-            continue
-
-        # Details/summary → toggle
-        if stripped.startswith('<details>'):
-            summary_text = "Details"
-            toggle_children = []
-            i += 1
-            while i < len(all_lines) and not all_lines[i].strip().startswith('</details>'):
-                l = all_lines[i].strip()
-                if l.startswith('<summary>'):
-                    summary_text = re.sub(r'</?summary>', '', l).strip()
-                elif l and not l.startswith('<'):
-                    toggle_children.append(l)
-                i += 1
-            blocks.append(_toggle(summary_text, toggle_children))
-            i += 1  # skip </details>
-            continue
-
-        # Headings
-        if stripped.startswith('# ') and not stripped.startswith('## '):
-            blocks.append(_heading(stripped, 1))
-            i += 1
-            continue
-        if stripped.startswith('## '):
-            blocks.append(_heading(stripped, 2))
-            i += 1
-            continue
-        if stripped.startswith('### '):
-            blocks.append(_heading(stripped, 3))
-            i += 1
-            continue
-
-        # Blockquote → callout with info icon
-        if stripped.startswith('> '):
-            quote_text = stripped[2:].strip()
-            blocks.append(_callout([quote_text], icon="ℹ️", color="gray_background"))
-            i += 1
-            continue
-
-        # Numbered list
-        if re.match(r'^\d+\.\s', stripped):
-            blocks.append(_numbered(stripped))
-            i += 1
-            continue
-
-        # Bullet list
-        if stripped.startswith('- ') or stripped.startswith('* '):
-            blocks.append(_bulleted(stripped))
-            i += 1
-            continue
-
-        # Default: paragraph
-        blocks.append(_paragraph(stripped))
-        i += 1
-
-    return blocks
 
 
 
