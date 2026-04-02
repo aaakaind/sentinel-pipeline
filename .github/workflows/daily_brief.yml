@@ -78,11 +78,12 @@ jobs:
           echo "::error::Check: (1) Notion API key validity (2) OpenSky/GPSJam connectivity (3) Notion parent page permissions"
           echo "::error::Run manually with dry_run=true to isolate the issue."
 
-      - name: Keep repo active for scheduled runs
-        if: github.event_name == 'schedule'
+      - name: Publish data to GitHub Pages
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: |
-          echo "Scheduled run completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> data/heartbeat.log
           git config user.name "sentinel-bot"
           git config user.email "sentinel-bot@users.noreply.github.com"
+          git add data/latest.json || true
+          echo "Scheduled run completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> data/heartbeat.log
           git add data/heartbeat.log || true
-          git diff --staged --quiet || (git commit -m "chore: heartbeat $(date -u +%Y-%m-%d)" && git push) || true
+          git diff --staged --quiet || (git commit -m "data: daily brief $(date -u +%Y-%m-%d)" && git push) || true
