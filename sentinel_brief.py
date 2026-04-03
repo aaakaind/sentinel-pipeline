@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import time
+import random
 import logging
 import argparse
 import csv
@@ -31,6 +32,82 @@ from io import StringIO
 from typing import Optional
 
 import requests
+
+
+# ─────────────────────────────────────────────
+#  RETRY HELPER
+# ─────────────────────────────────────────────
+
+def _get_with_retry(url: str, *, params=None, timeout: int = 12,
+                    max_attempts: int = 3, base_delay: float = 2.0) -> requests.Response:
+    """GET with exponential backoff on network errors, timeouts, 429, and 5xx.
+    4xx (other than 429) are returned immediately — caller decides what to do."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            # 4xx (except 429) are permanent — don't retry, return for caller to handle
+            if 400 <= r.status_code < 500 and r.status_code != 429:
+                return r
+            # 429 and 5xx are transient
+            if r.status_code in (429,) or r.status_code >= 500:
+                raise requests.HTTPError(f"{r.status_code} transient", response=r)
+            return r
+        except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+            if attempt == max_attempts:
+                raise
+            delay = base_delay ** attempt + random.uniform(0, 1)
+            log.warning(f"Attempt {attempt}/{max_attempts} failed ({exc}) — retrying in {delay:.1f}s")
+            time.sleep(delay)
+    raise RuntimeError("unreachable")
+
+
+def _post_with_retry(url: str, *, headers: dict, json_body: dict,
+                     timeout: int = 30, max_attempts: int = 3,
+                     base_delay: float = 2.0) -> requests.Response:
+    """POST with exponential backoff. Returns response (caller checks status)."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.post(url, headers=headers, json=json_body, timeout=timeout)
+            if r.status_code in (429, 502, 503, 504):
+                raise requests.HTTPError(f"{r.status_code} transient", response=r)
+            return r
+        except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+            if attempt == max_attempts:
+                return exc.response if hasattr(exc, "response") and exc.response is not None else _null_response(r.status_code if 'r' in dir() else 0)
+            delay = base_delay ** attempt + random.uniform(0, 1)
+            log.warning(f"Notion POST attempt {attempt}/{max_attempts} failed ({exc}) — retrying in {delay:.1f}s")
+            time.sleep(delay)
+    raise RuntimeError("unreachable")
+
+
+def _patch_with_retry(url: str, *, headers: dict, json_body: dict,
+                      timeout: int = 30, max_attempts: int = 3,
+                      base_delay: float = 2.0) -> requests.Response:
+    """PATCH with exponential backoff."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = requests.patch(url, headers=headers, json=json_body, timeout=timeout)
+            if r.status_code in (429, 502, 503, 504):
+                raise requests.HTTPError(f"{r.status_code} transient", response=r)
+            return r
+        except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+            if attempt == max_attempts:
+                return exc.response if hasattr(exc, "response") and exc.response is not None else _null_response(0)
+            delay = base_delay ** attempt + random.uniform(0, 1)
+            log.warning(f"Notion PATCH attempt {attempt}/{max_attempts} failed ({exc}) — retrying in {delay:.1f}s")
+            time.sleep(delay)
+    raise RuntimeError("unreachable")
+
+
+class _NullResponse:
+    """Stand-in when all retries exhaust without a real response object."""
+    def __init__(self, status_code: int = 0):
+        self.status_code = status_code
+        self.text = "(no response)"
+
+
+def _null_response(status_code: int = 0) -> _NullResponse:
+    return _NullResponse(status_code)
 
 # ─────────────────────────────────────────────
 #  CONFIG
@@ -99,11 +176,7 @@ def fetch_opensky() -> dict:
     log.info("Querying OpenSky Network ADS-B feed...")
     result = {"raw": [], "aircraft": [], "military": [], "isr": [], "emergency": [], "commercial": [], "source": "SIM"}
     try:
-        r = requests.get(OPENSKY_URL, params=OPENSKY_BOX, timeout=OPENSKY_TIMEOUT)
-        if r.status_code == 429:
-            log.warning("OpenSky rate-limited (429) — using simulated data")
-            return _sim_aircraft(result)
-        r.raise_for_status()
+        r = _get_with_retry(OPENSKY_URL, params=OPENSKY_BOX, timeout=OPENSKY_TIMEOUT)
         data = r.json()
         states = data.get("states") or []
         if not states:
@@ -156,11 +229,8 @@ def fetch_opensky() -> dict:
                  f"{len(result['emergency'])} emergency")
         return result
 
-    except requests.Timeout:
-        log.warning("OpenSky timeout — using simulated data")
-        return _sim_aircraft(result)
     except Exception as e:
-        log.warning(f"OpenSky error: {e} — using simulated data")
+        log.warning(f"OpenSky unavailable after retries ({e}) — using simulated data")
         return _sim_aircraft(result)
 
 
@@ -178,7 +248,7 @@ def fetch_gpsjam(date_str: Optional[str] = None) -> dict:
     for date in dates_to_try:
         url = f"{GPSJAM_BASE}/{date}.csv"
         try:
-            r = requests.get(url, timeout=GPSJAM_TIMEOUT)
+            r = _get_with_retry(url, timeout=GPSJAM_TIMEOUT)
             if not r.ok:
                 continue
             text = r.text.strip()
@@ -618,7 +688,8 @@ def _sim_gdelt(result: dict) -> dict:
 
 def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: dict, ais_data: dict, brief_date: str) -> str:
     """Build Notion-flavored Markdown for the daily brief page."""
-    now_str    = datetime.now(timezone.utc).strftime("%B %-d, %Y %H:%M UTC")
+    _now       = datetime.now(timezone.utc)
+    now_str    = f"{_now.strftime('%B')} {_now.day}, {_now.strftime('%Y %H:%M')} UTC"
     air_source = ac_data["source"]
     jam_source = jam_data["source"]
     sat_source = sat_data.get("source", "SIM")
@@ -849,7 +920,8 @@ def generate_brief(ac_data: dict, jam_data: dict, sat_data: dict, gdelt_data: di
     A('::: callout {icon="🔒" color="gray_bg"}')
     A('**SENTINEL v5** · AKA IND Technologies · World Intelligence Platform')
     A(f'Auto-generated: {now_str} · Classification: **OSINT UNCLASSIFIED**')
-    next_d = (datetime.strptime(brief_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%B %-d, %Y")
+    _next  = datetime.strptime(brief_date, "%Y-%m-%d") + timedelta(days=1)
+    next_d = f"{_next.strftime('%B')} {_next.day}, {_next.strftime('%Y')}"
     A(f'Next brief: **{next_d} 00:00 UTC** · All source data publicly available')
     A(':::')
 
@@ -1130,7 +1202,7 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         sys.exit(1)
 
     d = datetime.strptime(brief_date, "%Y-%m-%d")
-    title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B %-d, %Y')}"
+    title = f"🛰 SENTINEL — Daily Brief · {d.strftime('%B')} {d.day}, {d.strftime('%Y')}"
 
     blocks = _md_to_notion_blocks(content)
 
@@ -1139,10 +1211,12 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
         log.info(f"Title: {title}")
         log.info(f"Parent ID: {NOTION_PARENT_ID or '(not set)'}")
         log.info(f"Content length: {len(content)} chars, Notion blocks: {len(blocks)}")
+        enc = sys.stdout.encoding or "utf-8"
+        safe = lambda s: s.encode(enc, errors="replace").decode(enc, errors="replace")
         print("\n" + "="*60)
-        print(title)
+        print(safe(title))
         print("="*60)
-        print(content[:2000] + ("..." if len(content) > 2000 else ""))
+        print(safe(content[:2000]) + ("..." if len(content) > 2000 else ""))
         return None
 
     headers = {
@@ -1164,13 +1238,8 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     }
 
     log.info(f"Posting to Notion: '{title}' ({len(blocks)} blocks)...")
-    try:
-        r = requests.post("https://api.notion.com/v1/pages",
-                          headers=headers, json=payload, timeout=30)
-    except requests.RequestException as e:
-        log.error(f"Notion connection error: {e}")
-        return None
-
+    r = _post_with_retry("https://api.notion.com/v1/pages",
+                         headers=headers, json_body=page_payload)
     if r.status_code != 200:
         log.error(f"Notion API error {r.status_code}: {r.text[:500]}")
         return None
@@ -1180,25 +1249,19 @@ def post_to_notion(content: str, brief_date: str, dry_run: bool = False) -> Opti
     url = page.get("url", "")
     log.info(f"✅ Created: {url}")
 
-    # Append remaining blocks in batches of 100
-    remaining = blocks[100:]
-    batch_num = 1
-    while remaining:
-        batch = remaining[:100]
-        remaining = remaining[100:]
-        try:
-            r2 = requests.patch(
+    # Append remaining blocks in chunks of 100
+    if len(blocks) > 100:
+        for chunk_start in range(100, len(blocks), 100):
+            chunk = blocks[chunk_start:chunk_start + 100]
+            r2 = _patch_with_retry(
                 f"https://api.notion.com/v1/blocks/{page_id}/children",
-                headers=headers, json={"children": batch}, timeout=30)
-            if r2.ok:
-                log.info(f"  Appended block batch {batch_num} ({len(batch)} blocks)")
+                headers=headers,
+                json_body={"children": chunk},
+            )
+            if r2.status_code != 200:
+                log.warning(f"Block append chunk {chunk_start} failed: {r2.status_code}")
             else:
-                log.warning(f"  Failed to append batch {batch_num}: HTTP {r2.status_code}")
-                break
-        except requests.RequestException as e:
-            log.warning(f"  Error appending batch {batch_num}: {e}")
-            break
-        batch_num += 1
+                log.info(f"  Appended blocks {chunk_start}–{chunk_start + len(chunk)}")
 
     return url
 
