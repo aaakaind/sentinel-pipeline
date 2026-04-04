@@ -81,10 +81,34 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
   .logo{font-size:36px;}
   .stats-column,.threat-feed{display:none;}
 }
+
+/* ── UPGRADE BANNER ── */
+.upgrade-bar{position:fixed;top:0;left:0;right:0;height:32px;z-index:100;display:flex;align-items:center;justify-content:center;gap:16px;background:linear-gradient(90deg,rgba(2,8,17,.95) 0%,rgba(10,18,32,.95) 50%,rgba(2,8,17,.95) 100%);border-bottom:1px solid rgba(34,211,238,.12);backdrop-filter:blur(12px);font-family:'DM Mono',monospace;}
+.upgrade-bar a{display:flex;align-items:center;gap:16px;text-decoration:none;color:inherit;}
+.upgrade-bar .ub-label{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:.18em;color:#22d3ee;text-transform:uppercase;text-shadow:0 0 12px rgba(34,211,238,.3);}
+.upgrade-bar .ub-sep{width:1px;height:12px;background:rgba(34,211,238,.15);}
+.upgrade-bar .ub-desc{font-size:8px;letter-spacing:.12em;color:rgba(34,211,238,.35);}
+.upgrade-bar .ub-arrow{font-size:10px;color:rgba(34,211,238,.5);transition:transform .25s ease;}
+.upgrade-bar a:hover .ub-arrow{transform:translateX(3px);color:#22d3ee;}
+.upgrade-bar a:hover .ub-label{text-shadow:0 0 20px rgba(34,211,238,.5);}
+.hud-top{top:32px !important;}
+.corner.tl,.corner.tr{top:40px !important;}
+.stats-column{top:112px !important;}
+.threat-feed{top:112px !important;}
 </style>
 </head>
 <body>
 <canvas id="bg"></canvas>
+
+<!-- UPGRADE BANNER -->
+<div class="upgrade-bar">
+  <a href="https://akaintel.vip" target="_blank" rel="noopener">
+    <span class="ub-label">Upgrade to SENTINEL Pro</span>
+    <span class="ub-sep"></span>
+    <span class="ub-desc">Full OSINT Suite &middot; Scheduled Reports &middot; Premium Intel</span>
+    <span class="ub-arrow">&rarr;</span>
+  </a>
+</div>
 
 <!-- HUD ELEMENTS -->
 <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
