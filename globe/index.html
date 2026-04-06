@@ -123,7 +123,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth,innerHeight);
 renderer.setClearColor(0x010509,1);
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure=1.1;
+renderer.toneMappingExposure=0.95;
 const scene=new THREE.Scene();
 scene.fog=new THREE.FogExp2(0x010509,0.006);
 const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,.1,400);
@@ -131,7 +131,7 @@ camera.position.z=CDEF;
 
 // Enhanced lighting
 scene.add(new THREE.AmbientLight(0x182838,.5));
-const sun=new THREE.DirectionalLight(0xfff4e0,1.7);sun.position.set(5,3,4);scene.add(sun);
+const sun=new THREE.DirectionalLight(0xfff4e0,1.2);sun.position.set(5,3,4);scene.add(sun);
 const rim=new THREE.DirectionalLight(0x2244aa,.5);rim.position.set(-3,-1,-2);scene.add(rim);
 const fill=new THREE.PointLight(0x22d3ee,.15,10);fill.position.set(-2,2,1);scene.add(fill);
 
@@ -148,7 +148,7 @@ const TL=new THREE.TextureLoader();
 const tryT=(urls,cb,i=0)=>{if(i>=urls.length)return;TL.load(urls[i],t=>{t.anisotropy=renderer.capabilities.getMaxAnisotropy();cb(t);},undefined,()=>tryT(urls,cb,i+1));};
 tryT(['https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'],t=>{em.map=t;em.needsUpdate=true;});
 tryT(['https://unpkg.com/three-globe/example/img/earth-topology.png'],t=>{em.bumpMap=t;em.needsUpdate=true;});
-tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{em.specularMap=t;em.specular=new THREE.Color(0x333344);em.shininess=25;em.needsUpdate=true;});
+tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{em.specularMap=t;em.specular=new THREE.Color(0x111118);em.shininess=12;em.needsUpdate=true;});
 tryT(['https://unpkg.com/three-globe/example/img/earth-night.jpg'],t=>{scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.001,96,96),new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:.45,blending:THREE.AdditiveBlending})));});
 let cloudMesh=null;
 tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{cloudMesh=new THREE.Mesh(new THREE.SphereGeometry(1.008,96,96),new THREE.MeshPhongMaterial({map:t,transparent:true,opacity:.08,blending:THREE.AdditiveBlending,depthWrite:false}));scene.add(cloudMesh);});
