@@ -149,9 +149,9 @@ const tryT=(urls,cb,i=0)=>{if(i>=urls.length)return;TL.load(urls[i],t=>{t.anisot
 tryT(['https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'],t=>{em.map=t;em.needsUpdate=true;});
 tryT(['https://unpkg.com/three-globe/example/img/earth-topology.png'],t=>{em.bumpMap=t;em.needsUpdate=true;});
 tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{em.specularMap=t;em.specular=new THREE.Color(0x111118);em.shininess=12;em.needsUpdate=true;});
-tryT(['https://unpkg.com/three-globe/example/img/earth-night.jpg'],t=>{scene.add(new THREE.Mesh(new THREE.SphereGeometry(1.001,96,96),new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:.45,blending:THREE.AdditiveBlending})));});
+tryT(['https://unpkg.com/three-globe/example/img/earth-night.jpg'],t=>{earth.add(new THREE.Mesh(new THREE.SphereGeometry(1.001,96,96),new THREE.MeshBasicMaterial({map:t,transparent:true,opacity:.45,blending:THREE.AdditiveBlending})));});
 let cloudMesh=null;
-tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{cloudMesh=new THREE.Mesh(new THREE.SphereGeometry(1.008,96,96),new THREE.MeshPhongMaterial({map:t,transparent:true,opacity:.08,blending:THREE.AdditiveBlending,depthWrite:false}));scene.add(cloudMesh);});
+tryT(['https://unpkg.com/three-globe/example/img/earth-water.png'],t=>{cloudMesh=new THREE.Mesh(new THREE.SphereGeometry(1.008,96,96),new THREE.MeshPhongMaterial({map:t,transparent:true,opacity:.08,blending:THREE.AdditiveBlending,depthWrite:false}));earth.add(cloudMesh);});
 
 // Fresnel atmosphere shader
 const _av=`varying vec3 vN;varying vec3 vP;void main(){vN=normalize(normalMatrix*normal);vP=(modelViewMatrix*vec4(position,1.)).xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
