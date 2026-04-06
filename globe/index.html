@@ -58,6 +58,40 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010509;font-family:
 #hint{position:fixed;bottom:92px;left:50%;transform:translateX(-50%);z-index:50;font-size:7px;letter-spacing:.22em;color:rgba(255,255,255,.16);pointer-events:none;animation:hf 4s ease 3.5s forwards;}
 @keyframes hf{from{opacity:1}to{opacity:0}}
 body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(34,211,238,.007) 2px,rgba(34,211,238,.007) 3px);pointer-events:none;z-index:100;}
+
+/* ── MAP TYPE SELECTOR ── */
+#mapctrl{position:fixed;left:20px;top:50%;transform:translateY(-50%);z-index:50;display:flex;flex-direction:column;gap:6px;pointer-events:all;}
+.mc-label{font-size:6px;letter-spacing:.25em;color:rgba(34,211,238,.25);text-transform:uppercase;text-align:center;margin-bottom:2px;}
+.mc-opts{display:flex;flex-direction:column;gap:3px;}
+.mc-btn{width:44px;padding:7px 0;background:rgba(1,8,20,.85);border:1px solid rgba(34,211,238,.12);color:rgba(34,211,238,.4);font-family:'DM Mono',monospace;font-size:7px;letter-spacing:.14em;cursor:pointer;border-radius:4px;transition:all .15s;backdrop-filter:blur(8px);text-align:center;}
+.mc-btn:hover{background:rgba(34,211,238,.06);border-color:rgba(34,211,238,.3);color:rgba(34,211,238,.7);}
+.mc-btn.active{background:rgba(34,211,238,.1);border-color:rgba(34,211,238,.4);color:#22d3ee;box-shadow:0 0 10px rgba(34,211,238,.15);}
+
+/* ── COORDINATE BAR ── */
+#coordbar{position:fixed;bottom:62px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:10px;padding:5px 14px;background:rgba(1,8,20,.82);border:1px solid rgba(34,211,238,.1);border-radius:4px;backdrop-filter:blur(10px);pointer-events:all;white-space:nowrap;}
+.cb-toggle{display:flex;align-items:center;gap:5px;font-size:7px;letter-spacing:.14em;color:rgba(34,211,238,.5);cursor:pointer;transition:color .15s;}
+.cb-toggle:hover{color:#22d3ee;}
+.cb-toggle.on{color:#22d3ee;}
+.cb-icon{font-size:10px;}
+.cb-sep{width:1px;height:14px;background:rgba(34,211,238,.1);}
+.cb-coord{font-size:9px;font-weight:500;color:rgba(34,211,238,.7);letter-spacing:.05em;min-width:140px;text-align:center;font-variant-numeric:tabular-nums;}
+.cb-zoom{font-size:8px;color:rgba(255,255,255,.25);letter-spacing:.08em;font-variant-numeric:tabular-nums;}
+
+/* ── CROSSHAIR ── */
+#crosshair{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:40;pointer-events:none;opacity:0;transition:opacity .3s;}
+#crosshair.visible{opacity:1;}
+.ch-h,.ch-v{position:absolute;background:rgba(34,211,238,.15);}
+.ch-h{width:28px;height:1px;top:0;left:-14px;}
+.ch-v{width:1px;height:28px;top:-14px;left:0;}
+
+/* ── LAT/LON LABELS (canvas overlay) ── */
+#gridLabels{position:fixed;inset:0;z-index:35;pointer-events:none;}
+
+@media(max-width:600px){
+  #mapctrl{top:auto;bottom:120px;left:10px;transform:none;}
+  .mc-opts{flex-direction:row;}
+  #coordbar{bottom:82px;font-size:7px;padding:4px 10px;gap:6px;}
+}
 </style>
 </head>
 <body>
@@ -70,6 +104,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 </div>
 
 <canvas id="c"></canvas>
+<canvas id="gridLabels"></canvas>
 
 <div id="hud">
   <div><div class="brand-logo">SENTINEL</div><div class="brand-sub">Live Globe · World Intel v6</div></div>
@@ -113,6 +148,35 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 
 <div id="tip" class="hidden"></div>
 <div id="hint">DRAG TO ROTATE · SCROLL OR PINCH TO ZOOM · CLICK TO INSPECT</div>
+
+<!-- MAP TYPE SELECTOR -->
+<div id="mapctrl">
+  <div class="mc-label">MAP TYPE</div>
+  <div class="mc-opts">
+    <button class="mc-btn active" data-map="satellite" onclick="setMap('satellite')">SAT</button>
+    <button class="mc-btn" data-map="dark" onclick="setMap('dark')">DARK</button>
+    <button class="mc-btn" data-map="topo" onclick="setMap('topo')">TOPO</button>
+    <button class="mc-btn" data-map="night" onclick="setMap('night')">NIGHT</button>
+  </div>
+</div>
+
+<!-- GRID TOGGLE + COORD DISPLAY -->
+<div id="coordbar">
+  <div class="cb-toggle" id="gridToggle" onclick="toggleGrid()">
+    <span class="cb-icon" id="gridIcon">&#9638;</span>
+    <span>GRID</span>
+  </div>
+  <div class="cb-sep"></div>
+  <div class="cb-coord" id="cursorCoord">--°N --°E</div>
+  <div class="cb-sep"></div>
+  <div class="cb-zoom" id="zoomLevel">Z: 1.0x</div>
+</div>
+
+<!-- CROSSHAIR -->
+<div id="crosshair">
+  <div class="ch-h"></div>
+  <div class="ch-v"></div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -161,9 +225,152 @@ const atm=mkAtmo(1.04,0x4488ff,.6,4.);
 const atm2=mkAtmo(1.08,0x22d3ee,.25,6.);
 const atm3=mkAtmo(1.15,0x1155aa,.1,3.);
 scene.add(atm);scene.add(atm2);scene.add(atm3);
-const gm=new THREE.LineBasicMaterial({color:0x1a3344,transparent:true,opacity:.14});
-for(let lt=-60;lt<=60;lt+=30){const pts=[];for(let lg=0;lg<=360;lg+=5)pts.push(ll3(lt,lg-180,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
-for(let lg=-180;lg<180;lg+=30){const pts=[];for(let lt=-85;lt<=85;lt+=5)pts.push(ll3(lt,lg,1.001));scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gm));}
+// ── GRATICULE (lat/lon grid with labels) ──────────────
+const gridGroup=new THREE.Group();
+const gmFine=new THREE.LineBasicMaterial({color:0x22d3ee,transparent:true,opacity:.06});
+const gmMajor=new THREE.LineBasicMaterial({color:0x22d3ee,transparent:true,opacity:.14});
+const gmEquator=new THREE.LineBasicMaterial({color:0x22d3ee,transparent:true,opacity:.25});
+
+function buildGrid(){
+  while(gridGroup.children.length)gridGroup.remove(gridGroup.children[0]);
+  // Fine grid every 10 degrees
+  for(let lt=-80;lt<=80;lt+=10){const pts=[];const mat=lt===0?gmEquator:(lt%30===0?gmMajor:gmFine);for(let lg=0;lg<=360;lg+=3)pts.push(ll3(lt,lg-180,1.0015));gridGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat));}
+  for(let lg=-180;lg<180;lg+=10){const pts=[];const mat=lg===0||lg===-180?gmMajor:(lg%30===0?gmMajor:gmFine);for(let lt=-85;lt<=85;lt+=3)pts.push(ll3(lt,lg,1.0015));gridGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat));}
+}
+buildGrid();
+earth.add(gridGroup);
+let gridVisible=true;
+
+function toggleGrid(){
+  gridVisible=!gridVisible;
+  gridGroup.visible=gridVisible;
+  document.getElementById('gridToggle').classList.toggle('on',gridVisible);
+  document.getElementById('gridLabels').style.display=gridVisible?'block':'none';
+}
+document.getElementById('gridToggle').classList.add('on');
+
+// ── GRID LABEL RENDERER (2D canvas overlay) ───────────
+const lblCanvas=document.getElementById('gridLabels');
+const lblCtx=lblCanvas.getContext('2d');
+lblCanvas.width=innerWidth*devicePixelRatio;
+lblCanvas.height=innerHeight*devicePixelRatio;
+lblCanvas.style.width=innerWidth+'px';
+lblCanvas.style.height=innerHeight+'px';
+lblCtx.scale(devicePixelRatio,devicePixelRatio);
+
+function renderGridLabels(){
+  lblCtx.clearRect(0,0,innerWidth,innerHeight);
+  if(!gridVisible)return;
+  lblCtx.font='9px "DM Mono",monospace';
+  lblCtx.textAlign='center';
+  lblCtx.textBaseline='middle';
+  // Latitude labels
+  for(let lt=-60;lt<=60;lt+=30){
+    const p=ll3(lt,0,1.005);
+    const v=p.clone();
+    v.applyMatrix4(earth.matrixWorld);
+    v.project(camera);
+    if(v.z>1)continue;
+    const sx=(v.x*.5+.5)*innerWidth;
+    const sy=(-.5*v.y+.5)*innerHeight;
+    if(sx<10||sx>innerWidth-10||sy<40||sy>innerHeight-70)continue;
+    const lbl=lt===0?'EQ':(lt>0?lt+'N':Math.abs(lt)+'S');
+    lblCtx.fillStyle='rgba(34,211,238,0.3)';
+    lblCtx.fillText(lbl,sx+12,sy);
+  }
+  // Longitude labels
+  for(let lg=-150;lg<=180;lg+=30){
+    const p=ll3(0,lg,1.005);
+    const v=p.clone();
+    v.applyMatrix4(earth.matrixWorld);
+    v.project(camera);
+    if(v.z>1)continue;
+    const sx=(v.x*.5+.5)*innerWidth;
+    const sy=(-.5*v.y+.5)*innerHeight;
+    if(sx<10||sx>innerWidth-10||sy<40||sy>innerHeight-70)continue;
+    const lbl=lg===0?'PM':(lg>0?lg+'E':Math.abs(lg)+'W');
+    lblCtx.fillStyle='rgba(34,211,238,0.25)';
+    lblCtx.fillText(lbl,sx,sy+12);
+  }
+}
+
+// ── MAP TYPE SWITCHING ────────────────────────────────
+const MAP_TEXTURES={
+  satellite:'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+  dark:'https://unpkg.com/three-globe/example/img/earth-night.jpg',
+  topo:'https://unpkg.com/three-globe/example/img/earth-topology.png',
+  night:'https://unpkg.com/three-globe/example/img/earth-night.jpg',
+};
+let currentMap='satellite';
+const texCache={};
+
+function setMap(type){
+  if(type===currentMap)return;
+  currentMap=type;
+  document.querySelectorAll('.mc-btn').forEach(b=>b.classList.toggle('active',b.dataset.map===type));
+
+  const url=MAP_TEXTURES[type];
+  if(texCache[type]){applyMapTex(texCache[type],type);return;}
+  TL.load(url,t=>{
+    t.anisotropy=renderer.capabilities.getMaxAnisotropy();
+    texCache[type]=t;
+    applyMapTex(t,type);
+  });
+}
+
+function applyMapTex(tex,type){
+  if(type==='dark'){
+    em.map=tex;em.color.set(0xffffff);em.emissive.set(0x000000);em.emissiveMap=tex;em.emissiveIntensity=0.5;
+    em.bumpScale=0;em.specular.set(0x000000);
+  } else if(type==='night'){
+    em.map=tex;em.color.set(0xffffff);em.emissive.set(0x000000);em.emissiveMap=tex;em.emissiveIntensity=0.8;
+    em.bumpScale=0;em.specular.set(0x000000);
+  } else if(type==='topo'){
+    em.map=tex;em.color.set(0xffffff);em.emissive.set(0x000000);em.emissiveMap=null;em.emissiveIntensity=0;
+    em.bumpMap=tex;em.bumpScale=0.04;em.specular.set(0x111118);
+  } else {
+    em.map=tex;em.color.set(0x1a4478);em.emissive.set(0x000000);em.emissiveMap=null;em.emissiveIntensity=0;
+    em.bumpScale=0.02;em.specular.set(0x111118);em.shininess=12;
+  }
+  em.needsUpdate=true;
+}
+
+// ── CURSOR COORDINATE TRACKING ────────────────────────
+const rayCursor=new THREE.Raycaster();
+const mouseNDC=new THREE.Vector2();
+let cursorLat=0,cursorLon=0,cursorValid=false;
+
+function updateCursorCoord(clientX,clientY){
+  mouseNDC.x=(clientX/innerWidth)*2-1;
+  mouseNDC.y=-(clientY/innerHeight)*2+1;
+  rayCursor.setFromCamera(mouseNDC,camera);
+  const hits=rayCursor.intersectObject(earth,false);
+  if(hits.length>0){
+    const pt=hits[0].point.clone();
+    // Convert world point to earth-local
+    const local=earth.worldToLocal(pt);
+    const r=local.length();
+    const lat=90-Math.acos(local.y/r)*180/Math.PI;
+    const lon=Math.atan2(local.z,-local.x)*180/Math.PI-180;
+    const lonN=((lon+540)%360)-180;
+    cursorLat=lat;cursorLon=lonN;cursorValid=true;
+    const latStr=Math.abs(lat).toFixed(2)+(lat>=0?'N':'S');
+    const lonStr=Math.abs(lonN).toFixed(2)+(lonN>=0?'E':'W');
+    document.getElementById('cursorCoord').textContent=latStr+' '+lonStr;
+    document.getElementById('crosshair').classList.add('visible');
+  } else {
+    cursorValid=false;
+    document.getElementById('cursorCoord').textContent='--\u00B0N --\u00B0E';
+    document.getElementById('crosshair').classList.remove('visible');
+  }
+}
+
+// ── ZOOM LEVEL DISPLAY ────────────────────────────────
+function updateZoomDisplay(){
+  const zoomFactor=(CMAX-curZ)/(CMAX-CMIN);
+  const zoomX=(1+zoomFactor*4).toFixed(1);
+  document.getElementById('zoomLevel').textContent='Z: '+zoomX+'x';
+}
 
 function posv(sp,lat,lng,r){r=r||1.003;var phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;sp.position.set(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
 function ll3(lat,lng,r=1.003){const phi=(90-lat)*Math.PI/180,th=(lng+180)*Math.PI/180;return new THREE.Vector3(-r*Math.sin(phi)*Math.cos(th),r*Math.cos(phi),r*Math.sin(phi)*Math.sin(th));}
@@ -235,6 +442,7 @@ canvas.addEventListener('mousedown',e=>{drag2.active=true;drag2.x=e.clientX;drag
 window.addEventListener('mouseup',()=>{drag2.active=false;zDrag=false;canvas.classList.remove('dragging');});
 window.addEventListener('mousemove',e=>{
   if(zDrag){const r=zsl.getBoundingClientRect();const pct=Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height));setZoom(CMIN+(1-pct)*(CMAX-CMIN));return;}
+  updateCursorCoord(e.clientX,e.clientY);
   if(!drag2.active){hover(e);return;}
   const dx=e.clientX-drag2.x,dy=e.clientY-drag2.y;
   rot.y+=dx*.004;rot.x+=dy*.003;rot.x=Math.max(-Math.PI/2,Math.min(Math.PI/2,rot.x));
@@ -278,7 +486,7 @@ function sim(){
 }
 
 setInterval(()=>{const n=new Date();document.getElementById('uclock').textContent=`${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}:${String(n.getUTCSeconds()).padStart(2,'0')} UTC`;},1000);
-window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
+window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();lblCanvas.width=innerWidth*devicePixelRatio;lblCanvas.height=innerHeight*devicePixelRatio;lblCanvas.style.width=innerWidth+'px';lblCanvas.style.height=innerHeight+'px';lblCtx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);});
 
 (function loop(){
   requestAnimationFrame(loop);
@@ -289,6 +497,8 @@ window.addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);c
   applyRot();
   if(now-ls>1100){sim();ls=now;}
   renderer.render(scene,camera);
+  renderGridLabels();
+  updateZoomDisplay();
 })();
 
 // Live OpenSky
